@@ -3,655 +3,186 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sistema de Monitoreo de Movimiento — Física 1</title>
+  <title>Monitor de Movimiento — Física 1 · UMG</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <!-- HEADER -->
-  <header class="site-header">
-    <div class="header-top">
-      <div class="univ-badge">UMG · Física 1 · 2026</div>
-      <h1 class="site-title">Sistema de Monitoreo<br><span>de Movimiento</span></h1>
-      <p class="site-sub">Análisis cinemático en tiempo real · MRU · MRUV · Caída libre</p>
+<header class="site-header">
+  <div class="hdr-left">
+    <div class="univ-badge">UMG · Física 1 · 2026</div>
+    <h1>Monitor de Movimiento <span>en Tiempo Real</span></h1>
+  </div>
+  <div class="hdr-right">
+    <div class="tipo-pill" id="tipo-pill">—</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── FILA PRINCIPAL: Cámara + Métricas ── -->
+  <div class="top-row">
+
+    <!-- CÁMARA -->
+    <div class="card cam-card">
+      <div class="cam-wrap">
+        <video id="video" autoplay playsinline muted></video>
+        <!-- Canvas oculto para procesar píxeles -->
+        <canvas id="canvas-proc" style="display:none"></canvas>
+        <!-- Canvas visible con overlay encima del video -->
+        <canvas id="canvas-overlay"></canvas>
+
+        <div class="cam-status" id="cam-status">
+          <span class="status-dot"></span>
+          <span id="status-text">Iniciando cámara...</span>
+        </div>
+
+        <!-- Leyenda del punto rastreado -->
+        <div class="cam-legend" id="cam-legend" style="display:none">
+          <span class="legend-dot"></span> Objeto detectado
+        </div>
+      </div>
+
+      <div class="cam-controls">
+        <button class="btn btn-primary" id="btn-cam" onclick="toggleCamara()">
+          ▶ Iniciar cámara
+        </button>
+        <button class="btn btn-ghost" id="btn-track" onclick="toggleTracking()" disabled>
+          ◎ Activar rastreo
+        </button>
+        <button class="btn btn-ghost" onclick="resetDatos()">↺ Reset</button>
+        <button class="btn btn-ghost" id="btn-flip" onclick="flipCam()" style="display:none">⇄ Voltear</button>
+      </div>
+
+      <!-- Selector de color a rastrear -->
+      <div class="color-selector" id="color-selector" style="display:none">
+        <div class="color-label">Rastrear por color:</div>
+        <div class="color-options">
+          <button class="color-btn active" data-color="motion" onclick="setColorMode('motion')">🔀 Movimiento</button>
+          <button class="color-btn" data-color="red"    onclick="setColorMode('red')">🔴 Rojo</button>
+          <button class="color-btn" data-color="green"  onclick="setColorMode('green')">🟢 Verde</button>
+          <button class="color-btn" data-color="blue"   onclick="setColorMode('blue')">🔵 Azul</button>
+          <button class="color-btn" data-color="yellow" onclick="setColorMode('yellow')">🟡 Amarillo</button>
+          <button class="color-btn" data-color="orange" onclick="setColorMode('orange')">🟠 Naranja</button>
+        </div>
+        <div class="sensib-row">
+          <label>Sensibilidad</label>
+          <input type="range" id="sensib" min="10" max="80" value="35" oninput="updateSensib()">
+          <span id="sensib-val">35</span>
+        </div>
+      </div>
     </div>
-    <nav class="main-nav">
-      <button class="nav-btn active" data-tab="simulacion">⚡ Simulación</button>
-      <button class="nav-btn" data-tab="fisica">∑ Física Aplicada</button>
-      <button class="nav-btn" data-tab="validacion">✓ Validación</button>
-      <button class="nav-btn" data-tab="codigo">{ } Código</button>
-    </nav>
-  </header>
 
-  <main class="main-content">
+    <!-- MÉTRICAS -->
+    <div class="metrics-panel">
 
-    <!-- ══════════════════════════════════
-         TAB 1: SIMULACIÓN
-    ══════════════════════════════════ -->
-    <section id="tab-simulacion" class="tab-panel active">
-
-      <!-- CONTROLES -->
-      <div class="panel-grid">
-        <div class="card controls-card">
-          <h2 class="card-title">Parámetros de entrada</h2>
-          <div class="param-list">
-
-            <div class="param-row">
-              <label class="param-label">
-                <span class="param-icon">x₀</span>
-                Posición inicial
-              </label>
-              <div class="slider-wrap">
-                <input type="range" id="x0" min="0" max="50" value="0" step="1">
-                <output id="x0-out" class="slider-out">0 m</output>
-              </div>
-            </div>
-
-            <div class="param-row">
-              <label class="param-label">
-                <span class="param-icon">v₀</span>
-                Velocidad inicial
-              </label>
-              <div class="slider-wrap">
-                <input type="range" id="v0" min="0" max="30" value="5" step="0.5">
-                <output id="v0-out" class="slider-out">5.0 m/s</output>
-              </div>
-            </div>
-
-            <div class="param-row">
-              <label class="param-label">
-                <span class="param-icon">a</span>
-                Aceleración
-              </label>
-              <div class="slider-wrap">
-                <input type="range" id="acc" min="-9.81" max="15" value="2" step="0.1">
-                <output id="acc-out" class="slider-out">2.0 m/s²</output>
-              </div>
-            </div>
-
-            <div class="param-row">
-              <label class="param-label">
-                <span class="param-icon">T</span>
-                Duración
-              </label>
-              <div class="slider-wrap">
-                <input type="range" id="dur" min="5" max="30" value="10" step="1">
-                <output id="dur-out" class="slider-out">10 s</output>
-              </div>
-            </div>
-
-          </div>
-
-          <div class="tipo-display" id="tipo-display">
-            <span class="tipo-dot"></span>
-            <span id="tipo-text">MRUV — Movimiento Rectilíneo Uniformemente Variado</span>
-          </div>
-
-          <div class="btn-group">
-            <button id="btn-play" class="btn btn-primary" onclick="toggleSim()">▶ Iniciar</button>
-            <button class="btn btn-ghost" onclick="resetSim()">↺ Reiniciar</button>
-          </div>
-        </div>
-
-        <!-- MÉTRICAS EN TIEMPO REAL -->
-        <div class="metrics-card card">
-          <h2 class="card-title">Lecturas en tiempo real</h2>
-          <div class="metrics-grid">
-            <div class="metric-box" id="metric-pos">
-              <div class="metric-sym">x</div>
-              <div class="metric-val" id="m-pos">0.0</div>
-              <div class="metric-unit">metros</div>
-            </div>
-            <div class="metric-box" id="metric-vel">
-              <div class="metric-sym">v</div>
-              <div class="metric-val" id="m-vel">5.0</div>
-              <div class="metric-unit">m/s</div>
-            </div>
-            <div class="metric-box" id="metric-acc">
-              <div class="metric-sym">a</div>
-              <div class="metric-val" id="m-acc">2.0</div>
-              <div class="metric-unit">m/s²</div>
-            </div>
-            <div class="metric-box" id="metric-time">
-              <div class="metric-sym">t</div>
-              <div class="metric-val" id="m-time">0.0</div>
-              <div class="metric-unit">segundos</div>
-            </div>
-            <div class="metric-box wide">
-              <div class="metric-sym">d</div>
-              <div class="metric-val" id="m-dist">0.0</div>
-              <div class="metric-unit">distancia recorrida (m)</div>
-            </div>
-          </div>
-        </div>
+      <div class="metric-big" id="mb-pos">
+        <div class="mb-sym">x</div>
+        <div class="mb-val" id="m-pos">—</div>
+        <div class="mb-unit">posición (m)</div>
       </div>
 
-      <!-- PISTA DE SIMULACIÓN -->
-      <div class="card track-card">
-        <div class="track-header">
-          <span class="card-title">Visualización del movimiento</span>
-          <span class="track-t" id="track-t">t = 0.0 s</span>
-        </div>
-        <div class="track">
-          <div class="track-grid"></div>
-          <div class="trail" id="trail"></div>
-          <div class="obj" id="obj">●</div>
-          <div class="track-labels">
-            <span>0 m</span><span>|</span><span>|</span><span>|</span><span>máx</span>
-          </div>
-        </div>
+      <div class="metric-big" id="mb-vel">
+        <div class="mb-sym">v</div>
+        <div class="mb-val" id="m-vel">—</div>
+        <div class="mb-unit">velocidad (m/s)</div>
       </div>
 
-      <!-- GRÁFICAS -->
-      <div class="charts-row">
-        <div class="card chart-card">
-          <div class="chart-hdr"><span class="chart-label x-label">x(t)</span> Posición vs Tiempo</div>
-          <div class="chart-wrap"><canvas id="chartX"></canvas></div>
-        </div>
-        <div class="card chart-card">
-          <div class="chart-hdr"><span class="chart-label v-label">v(t)</span> Velocidad vs Tiempo</div>
-          <div class="chart-wrap"><canvas id="chartV"></canvas></div>
-        </div>
-        <div class="card chart-card">
-          <div class="chart-hdr"><span class="chart-label a-label">a(t)</span> Aceleración vs Tiempo</div>
-          <div class="chart-wrap"><canvas id="chartA"></canvas></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ══════════════════════════════════
-         TAB 2: FÍSICA APLICADA
-    ══════════════════════════════════ -->
-    <section id="tab-fisica" class="tab-panel">
-      <div class="fisica-grid">
-
-        <div class="card eq-card mru-card">
-          <div class="eq-type">MRU</div>
-          <h3>Movimiento Rectilíneo Uniforme</h3>
-          <p class="eq-desc">Velocidad constante. La aceleración es cero. La posición varía linealmente con el tiempo.</p>
-          <div class="eq-box">
-            <div class="eq">x = x₀ + v · t</div>
-          </div>
-          <div class="cond-list">
-            <div class="cond">a = 0</div>
-            <div class="cond">v = constante</div>
-            <div class="cond">Gráfica x(t) → línea recta</div>
-          </div>
-        </div>
-
-        <div class="card eq-card mruv-card">
-          <div class="eq-type">MRUV</div>
-          <h3>Movimiento Rectilíneo Uniformemente Variado</h3>
-          <p class="eq-desc">Aceleración constante distinta de cero. La velocidad cambia de forma lineal.</p>
-          <div class="eq-box">
-            <div class="eq">x = x₀ + v₀t + ½at²</div>
-            <div class="eq">v = v₀ + at</div>
-            <div class="eq">v² = v₀² + 2a(x − x₀)</div>
-          </div>
-          <div class="cond-list">
-            <div class="cond">a = constante ≠ 0</div>
-            <div class="cond">Gráfica v(t) → línea recta</div>
-            <div class="cond">Gráfica x(t) → parábola</div>
-          </div>
-        </div>
-
-        <div class="card eq-card caida-card">
-          <div class="eq-type">CAÍDA LIBRE</div>
-          <h3>Caída Libre</h3>
-          <p class="eq-desc">MRUV especial con a = g = 9.81 m/s² hacia abajo. Sin resistencia del aire.</p>
-          <div class="eq-box">
-            <div class="eq">y = y₀ + v₀t − ½gt²</div>
-            <div class="eq">v = v₀ − gt</div>
-            <div class="eq">g = 9.81 m/s²</div>
-          </div>
-          <div class="cond-list">
-            <div class="cond">a = −g = −9.81 m/s²</div>
-            <div class="cond">Eje vertical</div>
-            <div class="cond">Vacío o sin fricción</div>
-          </div>
-        </div>
-
-        <div class="card eq-card calc-card full-width">
-          <div class="eq-type">CÁLCULO DIFERENCIAL</div>
-          <h3>Velocidad y Aceleración Instantáneas</h3>
-          <p class="eq-desc">Las variables cinemáticas son derivadas sucesivas de la posición respecto al tiempo.</p>
-          <div class="eq-box three-col">
-            <div>
-              <div class="eq-mini-label">Posición</div>
-              <div class="eq">x(t)</div>
-            </div>
-            <div class="arrow-col">
-              <div class="eq-mini-label">→ d/dt</div>
-              <div class="eq">v = dx/dt</div>
-            </div>
-            <div>
-              <div class="eq-mini-label">→ d/dt</div>
-              <div class="eq">a = dv/dt</div>
-            </div>
-          </div>
-          <div class="cond-list">
-            <div class="cond">En discreta: v ≈ Δx/Δt</div>
-            <div class="cond">En discreta: a ≈ Δv/Δt</div>
-          </div>
-        </div>
-
-        <div class="card eq-card clasif-card full-width">
-          <div class="eq-type">ALGORITMO</div>
-          <h3>Clasificación automática del tipo de movimiento</h3>
-          <div class="clasif-flow">
-            <div class="flow-box start">Medir a</div>
-            <div class="flow-arrow">↓</div>
-            <div class="flow-decision">|a| &lt; 0.1?</div>
-            <div class="flow-branches">
-              <div class="branch">
-                <div class="branch-label">Sí</div>
-                <div class="flow-box mru">MRU</div>
-              </div>
-              <div class="branch">
-                <div class="branch-label">No</div>
-                <div class="flow-decision2">|a + 9.81| &lt; 0.1?</div>
-                <div class="flow-branches2">
-                  <div class="branch">
-                    <div class="branch-label">Sí</div>
-                    <div class="flow-box caida">Caída libre</div>
-                  </div>
-                  <div class="branch">
-                    <div class="branch-label">No</div>
-                    <div class="flow-box mruv">MRUV</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-      </div>
-    </section>
-
-    <!-- ══════════════════════════════════
-         TAB 3: VALIDACIÓN
-    ══════════════════════════════════ -->
-    <section id="tab-validacion" class="tab-panel">
-      <div class="card val-header-card">
-        <h2>Caso de validación: Caída libre de pelota</h2>
-        <p>Pelota lanzada desde reposo en y₀ = 20 m. Se comparan valores teóricos (calculados con la ecuación exacta) con los valores obtenidos por el sistema (con Δt = 0.1 s y ruido de medición simulado).</p>
-        <div class="val-params">
-          <span>y₀ = 20 m</span>
-          <span>v₀ = 0 m/s</span>
-          <span>g = 9.81 m/s²</span>
-          <span>Δt = 0.1 s</span>
-        </div>
+      <div class="metric-big" id="mb-acc">
+        <div class="mb-sym">a</div>
+        <div class="mb-val" id="m-acc">—</div>
+        <div class="mb-unit">aceleración (m/s²)</div>
       </div>
 
-      <div class="panel-grid">
-        <div class="card">
-          <h3 class="card-title">Tabla de resultados</h3>
-          <table class="val-table" id="val-table">
-            <thead>
-              <tr>
-                <th>t (s)</th>
-                <th>y teórico (m)</th>
-                <th>y medido (m)</th>
-                <th>v teórico (m/s)</th>
-                <th>v medido (m/s)</th>
-                <th>Error %</th>
-              </tr>
-            </thead>
-            <tbody id="val-body"></tbody>
-          </table>
-          <div class="error-summary" id="error-summary"></div>
+      <div class="metric-big" id="mb-time">
+        <div class="mb-sym">t</div>
+        <div class="mb-val" id="m-time">0.0</div>
+        <div class="mb-unit">tiempo (s)</div>
+      </div>
+
+      <div class="metric-big wide" id="mb-dist">
+        <div class="mb-sym">d</div>
+        <div class="mb-val" id="m-dist">—</div>
+        <div class="mb-unit">distancia recorrida (m)</div>
+      </div>
+
+      <!-- Calibración -->
+      <div class="calib-card">
+        <div class="calib-title">Escala (calibración)</div>
+        <div class="calib-row">
+          <label>Ref. real</label>
+          <input type="number" id="ref-real" value="0.3" step="0.05" min="0.05" max="5">
+          <span>m =</span>
+          <input type="number" id="ref-px" value="100" step="10" min="20" max="500">
+          <span>px</span>
         </div>
-
-        <div class="card chart-card">
-          <div class="chart-hdr">Posición: teórico vs medido</div>
-          <div class="chart-wrap"><canvas id="chartVal"></canvas></div>
-        </div>
+        <div class="calib-info" id="calib-info">Escala: 3.33 px/cm</div>
       </div>
 
-      <div class="card">
-        <div class="chart-hdr">Velocidad durante la caída</div>
-        <div class="chart-wrap"><canvas id="chartValV"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ── GRÁFICAS EN TIEMPO REAL ── -->
+  <div class="charts-row">
+    <div class="card chart-card">
+      <div class="chart-hdr"><span class="clabel x-l">x(t)</span> Posición vs Tiempo</div>
+      <div class="chart-wrap"><canvas id="chartX"></canvas></div>
+    </div>
+    <div class="card chart-card">
+      <div class="chart-hdr"><span class="clabel v-l">v(t)</span> Velocidad vs Tiempo</div>
+      <div class="chart-wrap"><canvas id="chartV"></canvas></div>
+    </div>
+    <div class="card chart-card">
+      <div class="chart-hdr"><span class="clabel a-l">a(t)</span> Aceleración vs Tiempo</div>
+      <div class="chart-wrap"><canvas id="chartA"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ── TRAYECTORIA 2D ── -->
+  <div class="card tray-card">
+    <div class="tray-hdr">
+      <span class="chart-hdr">Trayectoria 2D del objeto</span>
+      <button class="btn btn-ghost btn-sm" onclick="limpiarTrayectoria()">Limpiar</button>
+    </div>
+    <canvas id="chartTray"></canvas>
+  </div>
+
+  <!-- ── ECUACIONES APLICADAS ── -->
+  <div class="card eq-summary">
+    <div class="eq-title-bar">Ecuaciones aplicadas en tiempo real</div>
+    <div class="eq-grid">
+      <div class="eq-item">
+        <div class="eq-sym mru">MRU</div>
+        <code>x = x₀ + v·t</code>
+        <small>si |a| &lt; 0.2 m/s²</small>
       </div>
-    </section>
-
-    <!-- ══════════════════════════════════
-         TAB 4: CÓDIGO
-    ══════════════════════════════════ -->
-    <section id="tab-codigo" class="tab-panel">
-      <div class="code-tabs">
-        <button class="code-tab active" data-lang="js">JavaScript (Web)</button>
-        <button class="code-tab" data-lang="python">Python (OpenCV)</button>
-        <button class="code-tab" data-lang="fisica">Física (Algoritmo)</button>
+      <div class="eq-item">
+        <div class="eq-sym mruv">MRUV</div>
+        <code>x = x₀ + v₀t + ½at²</code>
+        <small>si a ≠ 0 constante</small>
       </div>
-
-      <div id="code-js" class="code-panel active">
-        <div class="card code-card">
-          <div class="code-hdr">
-            <span>fisica.js — Motor de cálculo cinemático</span>
-            <button class="btn btn-ghost btn-sm" onclick="copyCode('code-js-pre')">Copiar</button>
-          </div>
-          <pre id="code-js-pre"><code>// ================================================
-// SISTEMA DE MONITOREO DE MOVIMIENTO — Física 1
-// Universidad Mariano Gálvez de Guatemala
-// ================================================
-
-class MotorCinematico {
-  constructor(x0, v0, a) {
-    this.x0 = x0;   // Posición inicial (m)
-    this.v0 = v0;   // Velocidad inicial (m/s)
-    this.a  = a;    // Aceleración (m/s²)
-  }
-
-  // Posición en el tiempo t
-  posicion(t) {
-    // MRUV: x = x0 + v0*t + (1/2)*a*t^2
-    return this.x0 + this.v0 * t + 0.5 * this.a * t * t;
-  }
-
-  // Velocidad en el tiempo t
-  velocidad(t) {
-    // v = v0 + a*t
-    return this.v0 + this.a * t;
-  }
-
-  // Aceleración (constante en cinemática básica)
-  aceleracion() {
-    return this.a;
-  }
-
-  // Clasifica el tipo de movimiento
-  clasificar() {
-    if (Math.abs(this.a) < 0.05) return "MRU";
-    if (Math.abs(this.a + 9.81) < 0.1) return "Caída libre";
-    return "MRUV";
-  }
-
-  // Distancia recorrida entre t1 y t2
-  distancia(t1, t2) {
-    return Math.abs(this.posicion(t2) - this.posicion(t1));
-  }
-}
-
-// Uso:
-const motor = new MotorCinematico(0, 5, 2);
-console.log(motor.clasificar());    // "MRUV"
-console.log(motor.posicion(3));     // 0 + 5*3 + 0.5*2*9 = 24
-console.log(motor.velocidad(3));    // 5 + 2*3 = 11</code></pre>
-        </div>
+      <div class="eq-item">
+        <div class="eq-sym caida">Caída</div>
+        <code>y = y₀ − ½gt²</code>
+        <small>si a ≈ −9.81 m/s²</small>
       </div>
-
-      <div id="code-python" class="code-panel">
-        <div class="card code-card">
-          <div class="code-hdr">
-            <span>monitor.py — Detección con OpenCV</span>
-            <button class="btn btn-ghost btn-sm" onclick="copyCode('code-py-pre')">Copiar</button>
-          </div>
-          <pre id="code-py-pre"><code>"""
-Sistema de Monitoreo de Movimiento — Física 1
-Universidad Mariano Gálvez de Guatemala
-Requiere: pip install opencv-python matplotlib numpy
-"""
-
-import cv2
-import numpy as np
-import matplotlib.pyplot as plt
-
-# ──────────────────────────────────────
-# MOTOR DE CINEMÁTICA
-# ──────────────────────────────────────
-class MotorCinematico:
-    def __init__(self, escala_px_m=100):
-        """escala_px_m: cuántos píxeles equivalen a 1 metro"""
-        self.escala = escala_px_m
-        self.posiciones = []   # metros
-        self.velocidades = []  # m/s
-        self.aceleraciones = [] # m/s²
-        self.tiempos = []      # segundos
-        self.prev_pos = None
-        self.prev_vel = None
-        self.prev_t   = None
-
-    def registrar(self, px, py, t):
-        """Registra posición en píxeles y calcula variables físicas"""
-        x = px / self.escala  # convertir a metros
-        self.tiempos.append(t)
-        self.posiciones.append(x)
-
-        if self.prev_pos is not None and self.prev_t is not None:
-            dt = t - self.prev_t
-            if dt > 0:
-                v = (x - self.prev_pos) / dt
-            else:
-                v = 0
-        else:
-            v = 0
-
-        self.velocidades.append(v)
-
-        if self.prev_vel is not None and self.prev_t is not None:
-            dt = t - self.prev_t
-            a = (v - self.prev_vel) / dt if dt > 0 else 0
-        else:
-            a = 0
-
-        self.aceleraciones.append(a)
-        self.prev_pos = x
-        self.prev_vel = v
-        self.prev_t   = t
-
-    def clasificar(self):
-        if len(self.aceleraciones) < 5:
-            return "Sin datos"
-        a_media = np.mean(self.aceleraciones[-10:])
-        if abs(a_media) < 0.2:
-            return "MRU"
-        elif abs(a_media + 9.81) < 1.0:
-            return "Caída libre"
-        else:
-            return "MRUV"
-
-
-# ──────────────────────────────────────
-# DETECCIÓN DE OBJETO (COLOR)
-# ──────────────────────────────────────
-def detectar_objeto(frame, color_hsv_min, color_hsv_max):
-    """Detecta objeto por color usando HSV. Retorna centroide (cx, cy)."""
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    mascara = cv2.inRange(hsv, color_hsv_min, color_hsv_max)
-    mascara = cv2.GaussianBlur(mascara, (5, 5), 0)
-    contornos, _ = cv2.findContours(mascara, cv2.RETR_EXTERNAL,
-                                    cv2.CHAIN_APPROX_SIMPLE)
-    if contornos:
-        mayor = max(contornos, key=cv2.contourArea)
-        if cv2.contourArea(mayor) > 200:
-            M = cv2.moments(mayor)
-            if M["m00"] > 0:
-                cx = int(M["m10"] / M["m00"])
-                cy = int(M["m01"] / M["m00"])
-                return cx, cy
-    return None, None
-
-
-# ──────────────────────────────────────
-# LOOP PRINCIPAL
-# ──────────────────────────────────────
-def main(fuente=0):
-    """
-    fuente: 0 para webcam, o ruta a video 'video.mp4'
-    Objeto a detectar: pelota naranja (ajustar rangos HSV)
-    """
-    cap = cv2.VideoCapture(fuente)
-    motor = MotorCinematico(escala_px_m=100)
-
-    # Rango HSV para objeto naranja
-    hsv_min = np.array([5,  120, 120])
-    hsv_max = np.array([25, 255, 255])
-
-    t_inicio = None
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        import time
-        ahora = time.time()
-        if t_inicio is None:
-            t_inicio = ahora
-        t = ahora - t_inicio
-
-        cx, cy = detectar_objeto(frame, hsv_min, hsv_max)
-
-        if cx is not None:
-            motor.registrar(cx, cy, t)
-
-            # Dibujar en pantalla
-            cv2.circle(frame, (cx, cy), 20, (0, 200, 100), 3)
-            tipo = motor.clasificar()
-            pos = motor.posiciones[-1] if motor.posiciones else 0
-            vel = motor.velocidades[-1] if motor.velocidades else 0
-            acc = motor.aceleraciones[-1] if motor.aceleraciones else 0
-
-            cv2.putText(frame, f"Tipo: {tipo}",       (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
-            cv2.putText(frame, f"x = {pos:.2f} m",    (10, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
-            cv2.putText(frame, f"v = {vel:.2f} m/s",  (10, 90),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
-            cv2.putText(frame, f"a = {acc:.2f} m/s²", (10,120),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
-            cv2.putText(frame, f"t = {t:.1f} s",      (10,150),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,0), 2)
-
-        cv2.imshow("Monitor de Movimiento — Fisica 1", frame)
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
-
-    # ── Graficar resultados finales ──
-    if motor.tiempos:
-        fig, axs = plt.subplots(3, 1, figsize=(10, 8),
-                                facecolor='#0f0f0f')
-        fig.suptitle("Análisis Cinemático — Física 1", color='white',
-                     fontsize=14)
-
-        for ax in axs:
-            ax.set_facecolor('#1a1a1a')
-            ax.tick_params(colors='white')
-            ax.xaxis.label.set_color('white')
-            ax.yaxis.label.set_color('white')
-            for spine in ax.spines.values():
-                spine.set_edgecolor('#444')
-
-        axs[0].plot(motor.tiempos, motor.posiciones, '#5DCAA5', lw=2)
-        axs[0].set_ylabel("Posición (m)")
-        axs[0].set_title(f"Tipo detectado: {motor.clasificar()}",
-                         color='#5DCAA5', fontsize=11)
-
-        axs[1].plot(motor.tiempos, motor.velocidades, '#85B7EB', lw=2)
-        axs[1].set_ylabel("Velocidad (m/s)")
-
-        axs[2].plot(motor.tiempos, motor.aceleraciones, '#EF9F27', lw=2)
-        axs[2].set_ylabel("Aceleración (m/s²)")
-        axs[2].set_xlabel("Tiempo (s)")
-
-        plt.tight_layout()
-        plt.savefig("resultados_movimiento.png", dpi=150,
-                    bbox_inches='tight', facecolor='#0f0f0f')
-        plt.show()
-        print("Gráfica guardada como resultados_movimiento.png")
-
-
-if __name__ == "__main__":
-    main(fuente=0)   # 0 = webcam, o pon 'video.mp4'
-</code></pre>
-        </div>
+      <div class="eq-item">
+        <div class="eq-sym disc">Discreta</div>
+        <code>v ≈ Δx/Δt · escala</code>
+        <small>cálculo por fotograma</small>
       </div>
+    </div>
+  </div>
 
-      <div id="code-fisica" class="code-panel">
-        <div class="card code-card">
-          <div class="code-hdr">
-            <span>algoritmo — Pseudocódigo del sistema</span>
-            <button class="btn btn-ghost btn-sm" onclick="copyCode('code-alg-pre')">Copiar</button>
-          </div>
-          <pre id="code-alg-pre"><code>ALGORITMO: Sistema de Monitoreo de Movimiento
-================================================
-ENTRADAS: x0, v0, a, t_total
-SALIDAS:  x(t), v(t), a(t), tipo_movimiento
+</main>
 
-PASO 1 — INICIALIZACIÓN
-  t ← 0
-  Δt ← 0.05 s  (paso de integración)
-  x_prev ← x0
-  v_prev ← v0
+<footer>
+  Proyecto Final · Física 1 · Facultad de Ingeniería en Sistemas · Universidad Mariano Gálvez · 2026
+</footer>
 
-PASO 2 — CLASIFICAR MOVIMIENTO
-  SI |a| < 0.05 ENTONCES
-    tipo ← "MRU"
-  SINO SI |a + 9.81| < 0.1 ENTONCES
-    tipo ← "Caída libre"
-  SINO
-    tipo ← "MRUV"
-  FIN SI
-
-PASO 3 — BUCLE DE SIMULACIÓN
-  MIENTRAS t ≤ t_total HACER
-
-    // Calcular con ecuaciones de cinemática
-    SI tipo = "MRU" ENTONCES
-      x ← x0 + v0 * t
-      v ← v0
-      a_inst ← 0
-
-    SINO  // MRUV o Caída libre
-      x ← x0 + v0*t + 0.5*a*t²
-      v ← v0 + a*t
-      a_inst ← a
-    FIN SI
-
-    // Calcular con diferencias finitas (detección real)
-    v_discreta ← (x - x_prev) / Δt
-    a_discreta ← (v_discreta - v_prev) / Δt
-
-    // Registrar datos
-    GUARDAR (t, x, v, a_inst)
-    ACTUALIZAR gráficas x(t), v(t), a(t)
-    MOSTRAR métricas en pantalla
-
-    // Avanzar
-    x_prev ← x
-    v_prev ← v_discreta
-    t ← t + Δt
-
-  FIN MIENTRAS
-
-PASO 4 — VALIDACIÓN
-  PARA cada t en [0, 0.5, 1.0, 1.5, 2.0]:
-    x_teorico ← x0 + v0*t + 0.5*a*t²
-    v_teorico ← v0 + a*t
-    error% ← |x_medido - x_teorico| / |x_teorico| * 100
-    IMPRIMIR t, x_teorico, x_medido, error%
-  FIN PARA
-
-FIN ALGORITMO
-</code></pre>
-        </div>
-      </div>
-    </section>
-
-  </main>
-
-  <footer class="site-footer">
-    <p>Proyecto Final · Física 1 · Facultad de Ingeniería en Sistemas</p>
-    <p>Universidad Mariano Gálvez de Guatemala · 2026</p>
-  </footer>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-  <script src="app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
