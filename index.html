@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitor de Movimiento — Física 1 · UMG</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b0c10;--bg2:#12141a;--bg3:#1a1c24;
+  --bd:rgba(255,255,255,.08);--bd2:rgba(255,255,255,.16);
+  --tx:#e8e8ec;--tx2:#8b8fa8;--tx3:#454760;
+  --green:#5DCAA5;--blue:#85B7EB;--amber:#EF9F27;--red:#e74c4c;
+  --mono:'Space Mono',monospace;--sans:'DM Sans',sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--tx);min-height:100vh;font-size:15px}
+
+/* HEADER */
+header{
+  background:var(--bg2);border-bottom:1px solid var(--bd);
+  padding:.9rem 1.5rem;display:flex;justify-content:space-between;align-items:center;
+  position:sticky;top:0;z-index:100;
+}
+.univ{font-family:var(--mono);font-size:9px;color:var(--green);letter-spacing:.12em;margin-bottom:2px}
+h1{font-size:17px;font-weight:600}
+h1 em{color:var(--green);font-style:normal}
+.pill{
+  font-family:var(--mono);font-size:11px;padding:.3rem .9rem;border-radius:50px;
+  background:var(--bg3);border:1px solid var(--bd2);color:var(--tx2);transition:all .3s;
+}
+.pill.mru{border-color:var(--green);color:var(--green)}
+.pill.mruv{border-color:var(--blue);color:var(--blue)}
+.pill.caida{border-color:var(--amber);color:var(--amber)}
+
+/* MAIN LAYOUT */
+main{max-width:1100px;margin:0 auto;padding:1rem;display:flex;flex-direction:column;gap:1rem}
+
+/* CARD */
+.card{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:1rem}
+
+/* INSTRUCCIONES */
+.instruc{
+  background:var(--bg3);border:1px solid var(--bd2);border-radius:10px;
+  padding:.8rem 1.1rem;font-size:13px;color:var(--tx2);
+  display:flex;align-items:center;gap:.6rem;
+}
+.instruc strong{color:var(--tx)}
+.instruc .step{
+  font-family:var(--mono);font-size:11px;background:var(--green);color:#0b0c10;
+  border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;
+  font-weight:700;flex-shrink:0;
+}
+
+/* ROW */
+.row2{display:grid;grid-template-columns:1fr 250px;gap:1rem;align-items:start}
+
+/* CÁMARA */
+.cam-outer{position:relative;background:#000;border-radius:10px;overflow:hidden;aspect-ratio:16/9}
+video{width:100%;height:100%;object-fit:cover;display:block}
+#ov{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
+canvas.proc{display:none}
+
+.cam-badge{
+  position:absolute;top:10px;left:10px;
+  background:rgba(11,12,16,.82);border-radius:50px;
+  padding:4px 11px;font-family:var(--mono);font-size:11px;
+  display:flex;align-items:center;gap:6px;color:var(--tx2);
+}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--tx3);transition:background .3s}
+.dot.live{background:var(--green);box-shadow:0 0 6px var(--green)}
+.dot.rec{background:var(--red);box-shadow:0 0 8px var(--red);animation:blink .7s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+.rec-timer{
+  position:absolute;top:10px;right:10px;display:none;
+  background:rgba(231,76,60,.9);border-radius:8px;
+  padding:4px 12px;font-family:var(--mono);font-size:16px;font-weight:700;color:#fff;
+}
+
+.hint-overlay{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  pointer-events:none;
+}
+.hint-box{
+  background:rgba(11,12,16,.75);border:1px solid var(--bd2);border-radius:10px;
+  padding:.75rem 1.2rem;font-family:var(--mono);font-size:12px;color:var(--amber);
+  text-align:center;line-height:1.7;
+}
+
+/* CONTROLES */
+.ctrl{display:flex;gap:.5rem;flex-wrap:wrap;margin:.75rem 0 .75rem}
+button{
+  font-family:var(--mono);font-size:11px;border-radius:8px;
+  padding:.5rem 1rem;cursor:pointer;border:1px solid var(--bd2);
+  transition:all .15s;letter-spacing:.02em;background:transparent;color:var(--tx2);
+}
+button:hover:not(:disabled){background:var(--bg3);color:var(--tx)}
+button:disabled{opacity:.3;cursor:default}
+.btn-cam{background:var(--green);color:#0b0c10;border-color:var(--green);font-weight:700}
+.btn-cam:hover:not(:disabled){filter:brightness(1.1)}
+.btn-ini{background:#2980b9;color:#fff;border-color:#2980b9;font-weight:700;font-size:12px}
+.btn-ini:hover:not(:disabled){background:#1a6a9e}
+.btn-fin{background:var(--red);color:#fff;border-color:var(--red);font-weight:700;font-size:12px;display:none}
+.btn-fin:hover{background:#c0392b}
+.btn-reset{display:none}
+
+/* MÉTRICAS LIVE */
+.mets{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+.met{background:var(--bg3);border:1px solid var(--bd);border-radius:8px;padding:.7rem;text-align:center}
+.met.w2{grid-column:span 2}
+.msym{font-family:var(--mono);font-size:10px;color:var(--tx3);margin-bottom:.15rem}
+.mval{font-family:var(--mono);font-size:19px;font-weight:700;color:var(--green);line-height:1;margin-bottom:.15rem}
+.munit{font-size:10px;color:var(--tx3)}
+
+/* CALIBRACIÓN */
+.calib{
+  background:var(--bg3);border:1px solid var(--bd);border-radius:8px;
+  padding:.7rem;margin-top:.5rem;
+}
+.calib-t{font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--tx2);margin-bottom:.4rem}
+.calib-r{display:flex;align-items:center;gap:.4rem;font-size:12px;color:var(--tx2);flex-wrap:wrap}
+.calib-r input{
+  width:58px;background:var(--bg2);border:1px solid var(--bd2);border-radius:4px;
+  color:var(--tx);font-family:var(--mono);font-size:12px;padding:3px 5px;text-align:center;outline:none;
+}
+.calib-info{font-family:var(--mono);font-size:10px;color:var(--green);margin-top:.3rem}
+
+/* GRÁFICAS LIVE */
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem}
+.ghdr{font-family:var(--mono);font-size:10px;color:var(--tx2);margin-bottom:.5rem;display:flex;align-items:center;gap:.4rem}
+.gl{font-size:11px;font-weight:700;padding:1px 5px;border-radius:3px}
+.gx{background:rgba(93,202,165,.15);color:var(--green)}
+.gv{background:rgba(133,183,235,.15);color:var(--blue)}
+.ga{background:rgba(239,159,39,.15);color:var(--amber)}
+.gwrap{position:relative;height:160px}
+
+/* ═══════════ REPORTE ═══════════ */
+#reporte{display:none}
+
+.rep-banner{
+  border:1px solid var(--green);border-radius:12px;padding:1rem 1.4rem;
+  background:var(--bg3);display:flex;justify-content:space-between;align-items:center;
+  margin-bottom:.9rem;
+}
+.rep-banner h2{font-size:18px;font-weight:600;color:var(--green)}
+.rep-banner p{font-size:12px;color:var(--tx2);margin-top:.2rem}
+
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:.65rem;margin-bottom:.9rem}
+.kpi{background:var(--bg3);border:1px solid var(--bd2);border-radius:8px;padding:.8rem;text-align:center}
+.kpi-l{font-family:var(--mono);font-size:9px;color:var(--tx2);letter-spacing:.06em;margin-bottom:.3rem}
+.kpi-v{font-family:var(--mono);font-size:20px;font-weight:700;color:var(--tx);line-height:1;margin-bottom:.15rem}
+.kpi-u{font-size:10px;color:var(--tx3)}
+.kpi.hl .kpi-v{color:var(--amber)}
+
+.rg3{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;margin-bottom:.9rem}
+.rcard{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:.9rem}
+.rwrap{position:relative;height:190px}
+
+.rtray{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:.9rem;margin-bottom:.9rem}
+.rtrayw{position:relative;height:230px}
+
+.rtbl{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:.9rem;margin-bottom:.9rem}
+.rtbl-t{font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--tx2);margin-bottom:.65rem}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{font-family:var(--mono);font-size:9px;color:var(--tx2);padding:6px 8px;border-bottom:1px solid var(--bd2);text-align:left;font-weight:400;letter-spacing:.06em}
+td{font-family:var(--mono);font-size:11px;padding:6px 8px;border-bottom:1px solid var(--bd);color:var(--tx)}
+tr:last-child td{border-bottom:none}
+.chip{display:inline-block;padding:1px 7px;border-radius:3px;font-size:10px}
+.ok{background:rgba(93,202,165,.15);color:var(--green)}
+.warn{background:rgba(239,159,39,.15);color:var(--amber)}
+
+.reqs{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:.9rem;margin-bottom:.9rem}
+.reqs h3{font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--tx2);margin-bottom:.65rem}
+.eqs{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem}
+.eq{background:var(--bg3);border:1px solid var(--bd);border-radius:8px;padding:.7rem}
+.eq-tipo{font-family:var(--mono);font-size:9px;font-weight:700;margin-bottom:.3rem}
+.eq-f{font-family:var(--mono);font-size:11px;color:var(--tx);margin-bottom:.2rem}
+.eq-r{font-family:var(--mono);font-size:12px;color:var(--amber);font-weight:700}
+.eq-d{font-size:11px;color:var(--tx3);margin-top:.2rem}
+
+.rep-btns{display:flex;justify-content:flex-end;gap:.5rem;padding-top:.5rem}
+
+footer{text-align:center;padding:1.5rem;border-top:1px solid var(--bd);font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:1rem}
+
+@media(max-width:860px){
+  .row2{grid-template-columns:1fr}
+  .g3,.rg3{grid-template-columns:1fr}
+  .kpis{grid-template-columns:repeat(3,1fr)}
+  .eqs{grid-template-columns:1fr 1fr}
+}
+@media(max-width:540px){
+  main{padding:.6rem}
+  h1{font-size:14px}
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .eqs{grid-template-columns:1fr}
+}
+
+/* PRINT */
+@media print{
+  header,#panel-live,.g3{display:none!important}
+  #reporte{display:block!important}
+  body{background:#fff;color:#000}
+  .card,.rcard,.rtbl,.rtray,.reqs,.rep-banner,.kpi{
+    background:#fff!important;border:1px solid #ccc!important;
+  }
+  .kpi-v,.mval,.eq-r{color:#000!important}
+  .rep-btns{display:none}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="univ">UMG · INGENIERÍA EN SISTEMAS · FÍSICA 1 · 2026</div>
+    <h1>Monitor de Movimiento <em>con Cámara</em></h1>
+  </div>
+  <div class="pill" id="pill">Esperando</div>
+</header>
+
+<main>
+
+  <!-- INSTRUCCIONES -->
+  <div class="instruc" id="instruc">
+    <span class="step" id="step-n">1</span>
+    <span id="step-txt"><strong>Paso 1:</strong> Presiona <strong>"Iniciar cámara"</strong> para activar la cámara del dispositivo.</span>
+  </div>
+
+  <!-- CÁMARA + MÉTRICAS -->
+  <div class="row2" id="panel-live">
+    <div class="card">
+      <div class="cam-outer">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="proc" class="proc"></canvas>
+        <!-- Canvas interactivo de overlay -->
+        <canvas id="ov"></canvas>
+
+        <div class="cam-badge">
+          <span class="dot" id="dot"></span>
+          <span id="stxt">Sin cámara</span>
+        </div>
+        <div class="rec-timer" id="timer">0.0s</div>
+
+        <!-- Hint mientras no se hace click -->
+        <div class="hint-overlay" id="hint" style="display:none">
+          <div class="hint-box">
+            👆 Haz clic sobre el objeto<br>que quieres rastrear
+          </div>
+        </div>
+      </div>
+
+      <div class="ctrl">
+        <button class="btn-cam" id="btn-cam" onclick="toggleCam()">▶ Iniciar cámara</button>
+        <button class="btn-ini" id="btn-ini" onclick="iniciar()" disabled>⬤ INICIAR captura</button>
+        <button class="btn-fin" id="btn-fin" onclick="finalizar()">■ FINALIZAR</button>
+        <button class="btn-reset" id="btn-reset" onclick="resetTodo()">↺ Nueva captura</button>
+      </div>
+
+      <div class="calib">
+        <div class="calib-t">CALIBRACIÓN DE ESCALA</div>
+        <div class="calib-r">
+          <label>Objeto real:</label>
+          <input id="refm" type="number" value="0.20" step="0.05" min="0.02" max="5"> m
+          <label>=</label>
+          <input id="refpx" type="number" value="80" step="5" min="10" max="800"> px
+        </div>
+        <div class="calib-info" id="calib-info">→ 0.0025 m/px</div>
+      </div>
+    </div>
+
+    <!-- MÉTRICAS LIVE -->
+    <div class="mets">
+      <div class="met"><div class="msym">x</div><div class="mval" id="lx">—</div><div class="munit">posición (m)</div></div>
+      <div class="met"><div class="msym">y</div><div class="mval" id="ly">—</div><div class="munit">altura (m)</div></div>
+      <div class="met"><div class="msym">v</div><div class="mval" id="lv">—</div><div class="munit">velocidad (m/s)</div></div>
+      <div class="met"><div class="msym">a</div><div class="mval" id="la">—</div><div class="munit">acel. (m/s²)</div></div>
+      <div class="met"><div class="msym">t</div><div class="mval" id="lt">0.0</div><div class="munit">tiempo (s)</div></div>
+      <div class="met"><div class="msym">#</div><div class="mval" id="lf">0</div><div class="munit">puntos</div></div>
+    </div>
+  </div>
+
+  <!-- GRÁFICAS LIVE -->
+  <div class="g3" id="gvivo">
+    <div class="card"><div class="ghdr"><span class="gl gx">x(t)</span>Posición</div><div class="gwrap"><canvas id="cX"></canvas></div></div>
+    <div class="card"><div class="ghdr"><span class="gl gv">v(t)</span>Velocidad</div><div class="gwrap"><canvas id="cV"></canvas></div></div>
+    <div class="card"><div class="ghdr"><span class="gl ga">a(t)</span>Aceleración</div><div class="gwrap"><canvas id="cA"></canvas></div></div>
+  </div>
+
+  <!-- ══════════ REPORTE ══════════ -->
+  <div id="reporte">
+
+    <div class="rep-banner">
+      <div>
+        <h2>✓ Análisis completo del movimiento</h2>
+        <p id="rep-sub">—</p>
+      </div>
+      <div class="pill" id="rep-pill">—</div>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi"><div class="kpi-l">POS. INICIAL x₀</div><div class="kpi-v" id="rx0">—</div><div class="kpi-u">metros</div></div>
+      <div class="kpi"><div class="kpi-l">POS. FINAL xf</div><div class="kpi-v" id="rxf">—</div><div class="kpi-u">metros</div></div>
+      <div class="kpi hl"><div class="kpi-l">DISTANCIA TOTAL</div><div class="kpi-v" id="rdist">—</div><div class="kpi-u">metros</div></div>
+      <div class="kpi"><div class="kpi-l">VELOCIDAD MÁX</div><div class="kpi-v" id="rvmax">—</div><div class="kpi-u">m/s</div></div>
+      <div class="kpi"><div class="kpi-l">ACEL. MEDIA</div><div class="kpi-v" id="ramed">—</div><div class="kpi-u">m/s²</div></div>
+    </div>
+
+    <div class="rg3">
+      <div class="rcard"><div class="ghdr"><span class="gl gx">x(t)</span>Posición vs Tiempo</div><div class="rwrap"><canvas id="rX"></canvas></div></div>
+      <div class="rcard"><div class="ghdr"><span class="gl gv">v(t)</span>Velocidad vs Tiempo</div><div class="rwrap"><canvas id="rV"></canvas></div></div>
+      <div class="rcard"><div class="ghdr"><span class="gl ga">a(t)</span>Aceleración vs Tiempo</div><div class="rwrap"><canvas id="rA"></canvas></div></div>
+    </div>
+
+    <div class="rtray card">
+      <div class="ghdr">Trayectoria 2D del movimiento</div>
+      <div class="rtrayw"><canvas id="rTray"></canvas></div>
+    </div>
+
+    <div class="rtbl">
+      <div class="rtbl-t">TABLA DE DATOS — PUNTOS CLAVE</div>
+      <table><thead><tr>
+        <th>#</th><th>t (s)</th><th>x (m)</th><th>y (m)</th>
+        <th>v (m/s)</th><th>a (m/s²)</th><th>Δx (m)</th><th>Δt (s)</th>
+      </tr></thead><tbody id="rtbody"></tbody></table>
+    </div>
+
+    <div class="reqs">
+      <h3>ECUACIONES CINEMÁTICAS APLICADAS CON VALORES REALES</h3>
+      <div class="eqs" id="reqs-grid"></div>
+    </div>
+
+    <div class="rep-btns">
+      <button onclick="window.print()">🖨 Imprimir</button>
+      <button class="btn-cam" onclick="resetTodo()">↺ Nueva captura</button>
+    </div>
+
+  </div>
+
+</main>
+
+<footer>Proyecto Final · Física 1 · Facultad de Ingeniería en Sistemas · Universidad Mariano Gálvez de Guatemala · 2026</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+// ═══════════════════════════════════════════════
+//  ESTADO
+// ═══════════════════════════════════════════════
+const S = {
+  camON: false, capturando: false,
+  // Objeto rastreado: color muestreado al hacer clic
+  objColor: null,   // {r,g,b} promedio
+  objPx: null, objPy: null,  // posición previa en px
+  // Física
+  t0: null, prevT: null,
+  prevXm: null, prevYm: null,
+  prevV: null,
+  // Datos capturados
+  T:[], Xm:[], Ym:[], V:[], A:[],
+  timerInt: null, animId: null,
+};
+
+// ═══════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════
+const video  = document.getElementById('video');
+const proc   = document.getElementById('proc');
+const ov     = document.getElementById('ov');
+const ctxP   = proc.getContext('2d', {willReadFrequently:true});
+const ctxO   = ov.getContext('2d');
+
+// ═══════════════════════════════════════════════
+//  CALIBRACIÓN
+// ═══════════════════════════════════════════════
+function getEsc(){
+  const m  = parseFloat(document.getElementById('refm').value)  || 0.20;
+  const px = parseFloat(document.getElementById('refpx').value) || 80;
+  return m/px;
+}
+function updCalib(){
+  const e=getEsc();
+  document.getElementById('calib-info').textContent =
+    `→ ${e.toFixed(5)} m/px  (${(1/e).toFixed(0)} px = 1 m)`;
+}
+['refm','refpx'].forEach(id=>document.getElementById(id).addEventListener('input',updCalib));
+updCalib();
+
+// ═══════════════════════════════════════════════
+//  CÁMARA
+// ═══════════════════════════════════════════════
+async function toggleCam(){
+  if(S.camON){ apagarCam(); return; }
+  setSt('Solicitando permiso...','');
+  try{
+    // Intentar cámara trasera primero (mejor para experimentos físicos)
+    let stream;
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({
+        video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false
+      });
+    }catch{
+      stream = await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+    }
+    video.srcObject = stream;
+    await new Promise(r=>video.onloadedmetadata=r);
+    video.play();
+    S.camON=true;
+    resize();
+    setSt('EN VIVO','live');
+    document.getElementById('btn-cam').textContent='⏹ Apagar cámara';
+    document.getElementById('btn-ini').disabled=false;
+    document.getElementById('hint').style.display='flex';
+    setStep(2,'<strong>Paso 2:</strong> Haz <strong>clic sobre el objeto</strong> que quieres rastrear para muestrear su color.');
+    S.animId=requestAnimationFrame(loop);
+  }catch(e){
+    setSt('❌ '+e.message,'');
+  }
+}
+
+function apagarCam(){
+  video.srcObject?.getTracks().forEach(t=>t.stop());
+  video.srcObject=null;
+  cancelAnimationFrame(S.animId);
+  S.camON=false; S.capturando=false; S.objColor=null;
+  clearInterval(S.timerInt);
+  setSt('Sin cámara','');
+  document.getElementById('btn-cam').textContent='▶ Iniciar cámara';
+  document.getElementById('btn-ini').disabled=true;
+  document.getElementById('btn-fin').style.display='none';
+  document.getElementById('btn-ini').style.display='inline-block';
+  document.getElementById('btn-reset').style.display='none';
+  document.getElementById('hint').style.display='none';
+  document.getElementById('timer').style.display='none';
+  ctxO.clearRect(0,0,ov.width,ov.height);
+}
+
+function resize(){
+  const w=video.videoWidth||640, h=video.videoHeight||480;
+  proc.width=w; proc.height=h; ov.width=w; ov.height=h;
+}
+
+// ═══════════════════════════════════════════════
+//  CLIC EN EL CANVAS → MUESTREAR COLOR
+// ═══════════════════════════════════════════════
+ov.addEventListener('click', function(e){
+  if(!S.camON) return;
+  const rect=ov.getBoundingClientRect();
+  // Escalar coordenadas del clic al tamaño real del canvas
+  const scaleX=ov.width/rect.width;
+  const scaleY=ov.height/rect.height;
+  const cx=Math.round((e.clientX-rect.left)*scaleX);
+  const cy=Math.round((e.clientY-rect.top)*scaleY);
+
+  // Capturar frame actual en el canvas de proceso
+  ctxP.save();
+  ctxP.drawImage(video,0,0,proc.width,proc.height);
+  ctxP.restore();
+
+  // Muestrear color en un parche 20×20 centrado en el clic
+  const r=10, px0=Math.max(0,cx-r), py0=Math.max(0,cy-r);
+  const pw=Math.min(r*2,proc.width-px0), ph=Math.min(r*2,proc.height-py0);
+  const imgd=ctxP.getImageData(px0,py0,pw,ph).data;
+  let sr=0,sg=0,sb=0,n=0;
+  for(let i=0;i<imgd.length;i+=4){sr+=imgd[i];sg+=imgd[i+1];sb+=imgd[i+2];n++;}
+  S.objColor={r:sr/n, g:sg/n, b:sb/n};
+  S.objPx=cx; S.objPy=cy;
+
+  // Flash visual de confirmación
+  ctxO.clearRect(0,0,ov.width,ov.height);
+  ctxO.strokeStyle='#5DCAA5'; ctxO.lineWidth=3;
+  ctxO.beginPath(); ctxO.arc(cx,cy,25,0,Math.PI*2); ctxO.stroke();
+  ctxO.fillStyle='rgba(93,202,165,.3)';
+  ctxO.beginPath(); ctxO.arc(cx,cy,25,0,Math.PI*2); ctxO.fill();
+
+  document.getElementById('hint').style.display='none';
+  document.getElementById('btn-ini').disabled=false;
+  setStep(3,'<strong>Paso 3:</strong> Objeto seleccionado ✓ Ahora presiona <strong>"INICIAR captura"</strong> y lanza el objeto.');
+  setSt('Objeto muestreado — listo','live');
+});
+
+// ═══════════════════════════════════════════════
+//  INICIAR CAPTURA
+// ═══════════════════════════════════════════════
+function iniciar(){
+  if(!S.objColor){
+    alert('Primero haz clic sobre el objeto en la cámara para muestrear su color.');
+    return;
+  }
+  // Limpiar datos
+  S.T=[]; S.Xm=[]; S.Ym=[]; S.V=[]; S.A=[];
+  S.t0=null; S.prevT=null; S.prevXm=null; S.prevYm=null; S.prevV=null;
+  S.capturando=true;
+
+  setSt('GRABANDO','rec');
+  document.getElementById('btn-ini').style.display='none';
+  document.getElementById('btn-fin').style.display='inline-block';
+  document.getElementById('btn-cam').disabled=true;
+  document.getElementById('timer').style.display='block';
+  document.getElementById('pill').textContent='Capturando...';
+  document.getElementById('pill').className='pill';
+  setStep(4,'<strong>Paso 4:</strong> Grabando... Presiona <strong>"FINALIZAR"</strong> cuando termine el movimiento.');
+
+  // Resetear gráficas live
+  [lX,lV,lA].forEach(c=>{c.data.labels=[];c.data.datasets[0].data=[];c.update()});
+  document.getElementById('reporte').style.display='none';
+
+  const t0wall=performance.now();
+  S.timerInt=setInterval(()=>{
+    const t=((performance.now()-t0wall)/1000).toFixed(1);
+    document.getElementById('timer').textContent=t+'s';
+  },100);
+}
+
+// ═══════════════════════════════════════════════
+//  FINALIZAR CAPTURA
+// ═══════════════════════════════════════════════
+function finalizar(){
+  if(S.T.length<5){
+    alert('Muy pocos puntos ('+S.T.length+'). Asegúrate de que el objeto sea visible y se mueva durante la captura.');
+    return;
+  }
+  S.capturando=false;
+  clearInterval(S.timerInt);
+  setSt('EN VIVO','live');
+  document.getElementById('btn-fin').style.display='none';
+  document.getElementById('btn-ini').style.display='none';
+  document.getElementById('btn-reset').style.display='inline-block';
+  document.getElementById('btn-cam').disabled=false;
+  document.getElementById('timer').style.display='none';
+  generarReporte();
+}
+
+// ═══════════════════════════════════════════════
+//  LOOP DE VIDEO
+// ═══════════════════════════════════════════════
+function loop(){
+  if(!S.camON){return;}
+  S.animId=requestAnimationFrame(loop);
+  if(video.readyState<2) return;
+
+  resize();
+  ctxP.drawImage(video,0,0,proc.width,proc.height);
+
+  if(!S.objColor) return;  // sin objeto seleccionado
+
+  const W=proc.width, H=proc.height;
+  const img=ctxP.getImageData(0,0,W,H);
+  const px=img.data;
+
+  // Buscar píxeles similares al color muestreado
+  const {r:tr,g:tg,b:tb}=S.objColor;
+  const umbral=60; // tolerancia de color (fija, funciona bien)
+  let sx=0,sy=0,cnt=0;
+
+  // Buscar en ventana alrededor de la última posición conocida (±150px)
+  // Esto evita que salte a otra parte del frame
+  const xmin = S.objPx!==null ? Math.max(0,S.objPx-150) : 0;
+  const xmax = S.objPx!==null ? Math.min(W,S.objPx+150) : W;
+  const ymin = S.objPy!==null ? Math.max(0,S.objPy-150) : 0;
+  const ymax = S.objPy!==null ? Math.min(H,S.objPy+150) : H;
+
+  for(let y=ymin;y<ymax;y+=2){   // saltar un pixel para más velocidad
+    for(let x=xmin;x<xmax;x+=2){
+      const i=(y*W+x)*4;
+      const dr=Math.abs(px[i]-tr);
+      const dg=Math.abs(px[i+1]-tg);
+      const db=Math.abs(px[i+2]-tb);
+      if(dr+dg+db < umbral*3){sx+=x;sy+=y;cnt++;}
+    }
+  }
+
+  ctxO.clearRect(0,0,W,H);
+  drawGrid(W,H);
+
+  if(cnt>20){
+    const cx=Math.round(sx/cnt);
+    const cy=Math.round(sy/cnt);
+
+    // Suavizado con posición anterior (filtro de paso bajo)
+    const smooth=0.6;
+    const fx = S.objPx!==null ? Math.round(S.objPx*smooth + cx*(1-smooth)) : cx;
+    const fy = S.objPy!==null ? Math.round(S.objPy*smooth + cy*(1-smooth)) : cy;
+
+    S.objPx=fx; S.objPy=fy;
+
+    if(S.capturando){
+      registrar(fx,fy);
+    }
+
+    drawTarget(fx,fy,W,H);
+  } else {
+    // Si pierde el objeto, mantener la última posición conocida
+    if(S.objPx!==null) drawTarget(S.objPx,S.objPy,W,H);
+    if(S.capturando){
+      drawWarning(W,H,'⚠ Buscando objeto...');
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  FÍSICA — REGISTRAR PUNTO
+// ═══════════════════════════════════════════════
+function registrar(cx,cy){
+  const ahora=performance.now()/1000;
+  if(!S.t0) S.t0=ahora;
+  const t=ahora-S.t0;
+
+  const esc=getEsc();
+  const W=proc.width, H=proc.height;
+
+  // px → metros (origen = centro del frame)
+  const xm= (cx-W/2)*esc;
+  const ym= (H/2-cy)*esc;   // y positivo hacia arriba
+
+  // Necesitamos al menos 2 puntos para velocidad
+  if(S.prevT===null){
+    S.prevT=t; S.prevXm=xm; S.prevYm=ym;
+    return;
+  }
+
+  const dt=t-S.prevT;
+  if(dt<0.016) return;  // máximo ~60 puntos/seg, evitar div/0
+
+  const vx=(xm-S.prevXm)/dt;
+  const vy=(ym-S.prevYm)/dt;
+  const v=Math.sqrt(vx*vx+vy*vy);
+
+  let a=0;
+  if(S.prevV!==null){
+    a=(v-S.prevV)/dt;
+  }
+
+  // Guardar
+  S.T.push(parseFloat(t.toFixed(4)));
+  S.Xm.push(parseFloat(xm.toFixed(5)));
+  S.Ym.push(parseFloat(ym.toFixed(5)));
+  S.V.push(parseFloat(v.toFixed(5)));
+  S.A.push(parseFloat(a.toFixed(5)));
+
+  S.prevT=t; S.prevXm=xm; S.prevYm=ym; S.prevV=v;
+
+  // UI live
+  document.getElementById('lx').textContent=xm.toFixed(3);
+  document.getElementById('ly').textContent=ym.toFixed(3);
+  document.getElementById('lv').textContent=v.toFixed(3);
+  document.getElementById('la').textContent=a.toFixed(3);
+  document.getElementById('lt').textContent=t.toFixed(2);
+  document.getElementById('lf').textContent=S.T.length;
+
+  const cl=clasificar();
+  document.getElementById('pill').textContent=cl.label;
+  document.getElementById('pill').className='pill '+cl.css;
+
+  if(S.T.length%5===0) updLive();
+}
+
+// ═══════════════════════════════════════════════
+//  CLASIFICAR MOVIMIENTO
+// ═══════════════════════════════════════════════
+function clasificar(){
+  const n=S.A.length;
+  if(n<5) return {label:'Calculando...',css:''};
+  const win=S.A.slice(-Math.min(20,n));
+  const am=win.reduce((s,v)=>s+v,0)/win.length;
+  if(Math.abs(am)<0.4)         return {label:'MRU — velocidad constante',css:'mru'};
+  if(Math.abs(am+9.81)<2.5)    return {label:'Caída libre — g ≈ 9.81 m/s²',css:'caida'};
+  return {label:`MRUV — a ≈ ${am.toFixed(2)} m/s²`,css:'mruv'};
+}
+
+// ═══════════════════════════════════════════════
+//  DIBUJO OVERLAY
+// ═══════════════════════════════════════════════
+const trail=[];
+function drawGrid(W,H){
+  ctxO.strokeStyle='rgba(255,255,255,.05)';ctxO.lineWidth=1;
+  for(let x=0;x<W;x+=80){ctxO.beginPath();ctxO.moveTo(x,0);ctxO.lineTo(x,H);ctxO.stroke()}
+  for(let y=0;y<H;y+=80){ctxO.beginPath();ctxO.moveTo(0,y);ctxO.lineTo(W,y);ctxO.stroke()}
+  ctxO.strokeStyle='rgba(255,255,255,.1)';
+  ctxO.beginPath();ctxO.moveTo(W/2,0);ctxO.lineTo(W/2,H);ctxO.stroke();
+  ctxO.beginPath();ctxO.moveTo(0,H/2);ctxO.lineTo(W,H/2);ctxO.stroke();
+}
+function drawTarget(cx,cy,W,H){
+  trail.push({x:cx,y:cy});
+  if(trail.length>100) trail.shift();
+  // Estela
+  for(let i=1;i<trail.length;i++){
+    const a=i/trail.length;
+    ctxO.strokeStyle=`rgba(239,159,39,${a*.7})`;ctxO.lineWidth=2*a;
+    ctxO.beginPath();ctxO.moveTo(trail[i-1].x,trail[i-1].y);ctxO.lineTo(trail[i].x,trail[i].y);ctxO.stroke();
+  }
+  // Círculos
+  ctxO.strokeStyle='rgba(239,159,39,.5)';ctxO.lineWidth=2;
+  ctxO.beginPath();ctxO.arc(cx,cy,26,0,Math.PI*2);ctxO.stroke();
+  ctxO.fillStyle='#EF9F27';
+  ctxO.beginPath();ctxO.arc(cx,cy,6,0,Math.PI*2);ctxO.fill();
+  // Crosshair
+  ctxO.strokeStyle='rgba(239,159,39,.6)';ctxO.lineWidth=1;
+  ctxO.beginPath();ctxO.moveTo(cx-20,cy);ctxO.lineTo(cx+20,cy);ctxO.stroke();
+  ctxO.beginPath();ctxO.moveTo(cx,cy-20);ctxO.lineTo(cx,cy+20);ctxO.stroke();
+  // Etiqueta
+  const esc=getEsc(),W2=proc.width,H2=proc.height;
+  const xm=((cx-W2/2)*esc).toFixed(3);
+  const ym=((H2/2-cy)*esc).toFixed(3);
+  ctxO.fillStyle='rgba(11,12,16,.78)';ctxO.fillRect(cx+12,cy-22,148,18);
+  ctxO.fillStyle='#EF9F27';ctxO.font='10px Space Mono,monospace';
+  ctxO.fillText(`x:${xm}m  y:${ym}m`,cx+16,cy-8);
+  if(S.capturando && S.V.length>0){
+    const v=S.V[S.V.length-1].toFixed(3);
+    ctxO.fillStyle='rgba(231,76,60,.85)';ctxO.fillRect(cx+12,cy-44,148,18);
+    ctxO.fillStyle='#fff';ctxO.font='10px Space Mono,monospace';
+    ctxO.fillText(`v:${v} m/s  t:${S.T.length>0?S.T[S.T.length-1].toFixed(2):0}s`,cx+16,cy-30);
+  }
+}
+function drawWarning(W,H,msg){
+  ctxO.fillStyle='rgba(231,76,60,.12)';ctxO.fillRect(0,H/2-18,W,36);
+  ctxO.fillStyle='#e74c4c';ctxO.font='13px Space Mono,monospace';ctxO.textAlign='center';
+  ctxO.fillText(msg,W/2,H/2+5);ctxO.textAlign='left';
+}
+
+// ═══════════════════════════════════════════════
+//  GRÁFICAS LIVE
+// ═══════════════════════════════════════════════
+const GC='rgba(255,255,255,.06)', GT='#454760';
+function mkC(id,col,yL){
+  return new Chart(document.getElementById(id),{
+    type:'line',
+    data:{labels:[],datasets:[{data:[],borderColor:col,borderWidth:2,pointRadius:0,tension:0.3,fill:false}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:GT,maxTicksLimit:6,font:{size:10,family:'Space Mono'}},grid:{color:GC},
+           title:{display:true,text:'t (s)',color:GT,font:{size:10}}},
+        y:{ticks:{color:GT,maxTicksLimit:5,font:{size:10,family:'Space Mono'}},grid:{color:GC},
+           title:{display:true,text:yL,color:GT,font:{size:10}}},
+      },
+    },
+  });
+}
+const lX=mkC('cX','#5DCAA5','x (m)');
+const lV=mkC('cV','#85B7EB','v (m/s)');
+const lA=mkC('cA','#EF9F27','a (m/s²)');
+
+function updLive(){
+  const n=S.T.length, paso=Math.max(1,Math.ceil(n/250));
+  const idx=[]; for(let i=0;i<n;i+=paso) idx.push(i);
+  const lbl=idx.map(i=>S.T[i].toFixed(2));
+  const upd=(c,arr)=>{c.data.labels=lbl;c.data.datasets[0].data=idx.map(i=>arr[i]);c.update('none')};
+  upd(lX,S.Xm); upd(lV,S.V); upd(lA,S.A);
+}
+
+// ═══════════════════════════════════════════════
+//  REPORTE FINAL
+// ═══════════════════════════════════════════════
+let rCharts=[];
+function generarReporte(){
+  const n=S.T.length;
+  const cl=clasificar();
+  const dur=S.T[n-1]-S.T[0];
+
+  const paso=Math.max(1,Math.ceil(n/200));
+  const idx=[]; for(let i=0;i<n;i+=paso) idx.push(i);
+  const lbl=idx.map(i=>S.T[i].toFixed(3));
+  const xs=idx.map(i=>S.Xm[i]);
+  const ys=idx.map(i=>S.Ym[i]);
+  const vs=idx.map(i=>S.V[i]);
+  const as=idx.map(i=>S.A[i]);
+
+  // KPIs
+  const dist=S.Xm.reduce((acc,_,i)=>i===0?0:acc+Math.sqrt((S.Xm[i]-S.Xm[i-1])**2+(S.Ym[i]-S.Ym[i-1])**2),0);
+  const vmax=Math.max(...S.V);
+  const amed=S.A.reduce((s,v)=>s+v,0)/n;
+  document.getElementById('rx0').textContent=S.Xm[0].toFixed(4);
+  document.getElementById('rxf').textContent=S.Xm[n-1].toFixed(4);
+  document.getElementById('rdist').textContent=dist.toFixed(4);
+  document.getElementById('rvmax').textContent=vmax.toFixed(4);
+  document.getElementById('ramed').textContent=amed.toFixed(4);
+  document.getElementById('rep-sub').textContent=
+    `${cl.label} · duración: ${dur.toFixed(3)} s · ${n} puntos`;
+  const rp=document.getElementById('rep-pill');
+  rp.textContent=cl.label; rp.className='pill '+cl.css;
+
+  // Destruir gráficas anteriores
+  rCharts.forEach(c=>c.destroy()); rCharts=[];
+
+  function mkR(id,col,yL,labels,data){
+    const c=new Chart(document.getElementById(id),{
+      type:'line',
+      data:{labels,datasets:[{data,borderColor:col,borderWidth:2,pointRadius:0,tension:0.3,fill:false}]},
+      options:{
+        responsive:true,maintainAspectRatio:false,animation:false,
+        plugins:{legend:{display:false}},
+        scales:{
+          x:{ticks:{color:GT,maxTicksLimit:8,font:{size:10,family:'Space Mono'}},grid:{color:GC},
+             title:{display:true,text:'t (s)',color:GT,font:{size:10}}},
+          y:{ticks:{color:GT,maxTicksLimit:6,font:{size:10,family:'Space Mono'}},grid:{color:GC},
+             title:{display:true,text:yL,color:GT,font:{size:10}}},
+        },
+      },
+    });
+    rCharts.push(c); return c;
+  }
+  mkR('rX','#5DCAA5','x (m)',lbl,xs);
+  mkR('rV','#85B7EB','v (m/s)',lbl,vs);
+  mkR('rA','#EF9F27','a (m/s²)',lbl,as);
+
+  // Trayectoria
+  const tray=new Chart(document.getElementById('rTray'),{
+    type:'scatter',
+    data:{datasets:[{
+      label:'Trayectoria',
+      data:idx.map(i=>({x:S.Xm[i],y:S.Ym[i]})),
+      borderColor:'#EF9F27',backgroundColor:'rgba(239,159,39,.35)',
+      pointRadius:3,showLine:true,tension:0.3,borderWidth:1.5,
+    }]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:GT,font:{size:10,family:'Space Mono'}},grid:{color:GC},title:{display:true,text:'x (m)',color:GT}},
+        y:{ticks:{color:GT,font:{size:10,family:'Space Mono'}},grid:{color:GC},title:{display:true,text:'y (m)',color:GT}},
+      },
+    },
+  });
+  rCharts.push(tray);
+
+  // Tabla de puntos clave
+  const tbody=document.getElementById('rtbody');
+  tbody.innerHTML='';
+  const step=Math.max(1,Math.floor(n/12));
+  const pts=new Set([0]);
+  for(let i=step;i<n;i+=step) pts.add(i);
+  pts.add(n-1);
+  [...pts].sort((a,b)=>a-b).forEach((i,row)=>{
+    const dt=i>0?(S.T[i]-S.T[i-1]).toFixed(4):'—';
+    const dx=i>0?(S.Xm[i]-S.Xm[i-1]).toFixed(4):'—';
+    const vc=Math.abs(S.V[i])<50;
+    const ac=Math.abs(S.A[i])<200;
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${row+1}</td><td>${S.T[i].toFixed(3)}</td><td>${S.Xm[i].toFixed(4)}</td><td>${S.Ym[i].toFixed(4)}</td>
+      <td><span class="chip ${vc?'ok':'warn'}">${S.V[i].toFixed(4)}</span></td>
+      <td><span class="chip ${ac?'ok':'warn'}">${S.A[i].toFixed(4)}</span></td>
+      <td>${dx}</td><td>${dt}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  // Ecuaciones con valores reales
+  const x0=S.Xm[0],xf=S.Xm[n-1],v0=S.V[0]||0,vf=S.V[n-1]||0;
+  document.getElementById('reqs-grid').innerHTML=`
+    <div class="eq"><div class="eq-tipo" style="color:#5DCAA5">DESPLAZAMIENTO</div>
+      <div class="eq-f">Δx = xf − x₀</div>
+      <div class="eq-r">= ${(xf-x0).toFixed(4)} m</div>
+      <div class="eq-d">${xf.toFixed(4)} − ${x0.toFixed(4)}</div></div>
+    <div class="eq"><div class="eq-tipo" style="color:#85B7EB">VELOCIDAD MEDIA</div>
+      <div class="eq-f">v̄ = Δx / Δt</div>
+      <div class="eq-r">= ${((xf-x0)/dur).toFixed(4)} m/s</div>
+      <div class="eq-d">Δt = ${dur.toFixed(4)} s</div></div>
+    <div class="eq"><div class="eq-tipo" style="color:#EF9F27">ACELERACIÓN MEDIA</div>
+      <div class="eq-f">ā = Δv / Δt</div>
+      <div class="eq-r">= ${((vf-v0)/dur).toFixed(4)} m/s²</div>
+      <div class="eq-d">Δv = ${(vf-v0).toFixed(4)} m/s</div></div>
+    <div class="eq"><div class="eq-tipo" style="color:#5DCAA5">MRU: x = x₀ + v₀·t</div>
+      <div class="eq-f">x(${dur.toFixed(2)}) = ${x0.toFixed(4)} + ${v0.toFixed(4)}·${dur.toFixed(4)}</div>
+      <div class="eq-r">= ${(x0+v0*dur).toFixed(4)} m</div>
+      <div class="eq-d">Medido: ${xf.toFixed(4)} m</div></div>
+    <div class="eq"><div class="eq-tipo" style="color:#85B7EB">MRUV: x = x₀+v₀t+½at²</div>
+      <div class="eq-f">x(${dur.toFixed(2)}) = ... + ½·${amed.toFixed(4)}·t²</div>
+      <div class="eq-r">= ${(x0+v0*dur+0.5*amed*dur*dur).toFixed(4)} m</div>
+      <div class="eq-d">Medido: ${xf.toFixed(4)} m</div></div>
+    <div class="eq"><div class="eq-tipo" style="color:#EF9F27">DISTANCIA TOTAL</div>
+      <div class="eq-f">d = Σ√(Δx²+Δy²)</div>
+      <div class="eq-r">= ${dist.toFixed(4)} m</div>
+      <div class="eq-d">v máx = ${vmax.toFixed(4)} m/s</div></div>`;
+
+  const rep=document.getElementById('reporte');
+  rep.style.display='block';
+  setTimeout(()=>rep.scrollIntoView({behavior:'smooth',block:'start'}),100);
+
+  setStep(5,'<strong>¡Listo!</strong> El reporte completo se generó abajo. Puedes imprimirlo o iniciar una nueva captura.');
+}
+
+// ═══════════════════════════════════════════════
+//  RESET
+// ═══════════════════════════════════════════════
+function resetTodo(){
+  S.T=[];S.Xm=[];S.Ym=[];S.V=[];S.A=[];
+  S.t0=null;S.prevT=null;S.prevXm=null;S.prevYm=null;S.prevV=null;
+  S.capturando=false; S.objColor=null; S.objPx=null; S.objPy=null;
+  trail.length=0;
+  clearInterval(S.timerInt);
+
+  document.getElementById('reporte').style.display='none';
+  document.getElementById('btn-ini').style.display='inline-block';
+  document.getElementById('btn-ini').disabled=true;
+  document.getElementById('btn-fin').style.display='none';
+  document.getElementById('btn-reset').style.display='none';
+  document.getElementById('btn-cam').disabled=false;
+  document.getElementById('timer').style.display='none';
+  document.getElementById('pill').textContent='Esperando';
+  document.getElementById('pill').className='pill';
+  ['lx','ly','lv','la','lf'].forEach(id=>document.getElementById(id).textContent='—');
+  document.getElementById('lt').textContent='0.0';
+  [lX,lV,lA].forEach(c=>{c.data.labels=[];c.data.datasets[0].data=[];c.update()});
+
+  if(S.camON){
+    document.getElementById('hint').style.display='flex';
+    document.getElementById('btn-ini').disabled=false;
+    setSt('EN VIVO — haz clic sobre el objeto','live');
+    setStep(2,'<strong>Paso 2:</strong> Haz <strong>clic sobre el objeto</strong> que quieres rastrear.');
+  } else {
+    setSt('Sin cámara','');
+    setStep(1,'<strong>Paso 1:</strong> Presiona <strong>"Iniciar cámara"</strong>.');
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════
+function setSt(msg,cls){
+  document.getElementById('stxt').textContent=msg;
+  const d=document.getElementById('dot');
+  d.className='dot'+(cls?' '+cls:'');
+}
+function setStep(n,html){
+  document.getElementById('step-n').textContent=n;
+  document.getElementById('step-txt').innerHTML=html;
+}
+
+// Exponer funciones globales
+window.toggleCam=toggleCam;
+window.iniciar=iniciar;
+window.finalizar=finalizar;
+window.resetTodo=resetTodo;
+
+window.addEventListener('DOMContentLoaded',()=>{updCalib();});
+</script>
+</body>
+</html>
