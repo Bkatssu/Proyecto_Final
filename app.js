@@ -1,704 +1,602 @@
 // ================================================
-// MONITOR DE MOVIMIENTO CON CÁMARA — Física 1
-// app.js · Universidad Mariano Gálvez de Guatemala
-// ================================================
-// Funciona 100% en el navegador con la cámara del
-// dispositivo. No requiere instalación de nada.
+// MONITOR DE MOVIMIENTO — Física 1 · UMG
+// app.js
 // ================================================
 
 'use strict';
 
-// ─────────────────────────────────────────────
-// ESTADO GLOBAL
-// ─────────────────────────────────────────────
-const state = {
-  camaraActiva:  false,
-  rastreando:    false,
-  colorMode:     'motion',   // 'motion' | 'red' | 'green' | 'blue' | 'yellow' | 'orange'
-  sensibilidad:  35,
-  facingMode:    'user',     // 'user' (frontal) | 'environment' (trasera)
-
-  // Datos cinemáticos
-  tiempos:       [],
-  posicionesX:   [],
-  posicionesY:   [],
-  velocidades:   [],
-  aceleraciones: [],
-  trayectoria:   [],   // [{x,y}] en metros
-
-  // Estado previo para diferencias finitas
-  prevX: null, prevY: null, prevV: null, prevT: null,
-  t0:    null,
-
-  // Escala px → metros
-  escala: null,  // m/px (calculado de los inputs)
-
-  // Para detección por movimiento (diff frames)
-  prevFrame: null,
-
-  // Loop de animación
-  animId: null,
+// ─── ESTADO ───────────────────────────────────
+const S = {
+  camON: false, capturando: false,
+  colorMode: 'motion', sens: 30,
+  t0: null, timerInterval: null,
+  prevFrame: null, prevX: null, prevY: null,
+  prevVx: null, prevVy: null, prevT: null,
+  // Arrays de datos capturados
+  T: [], X: [], Y: [], Vx: [], Vy: [], V: [], A: [],
 };
 
-// Rangos HSV para cada color (H en 0-360, S y V en 0-255)
-const COLOR_RANGES = {
-  red:    { hMin:  0, hMax: 10,  sMin: 100, vMin: 80 },
-  green:  { hMin: 40, hMax: 80,  sMin: 80,  vMin: 60 },
-  blue:   { hMin:100, hMax:130,  sMin: 80,  vMin: 60 },
-  yellow: { hMin: 25, hMax: 40,  sMin: 100, vMin: 100 },
-  orange: { hMin: 10, hMax: 25,  sMin: 100, vMin: 100 },
+const COLOR_HSV = {
+  red:    { hMin:0,   hMax:12,  sMin:.4, vMin:.3 },
+  orange: { hMin:12,  hMax:28,  sMin:.4, vMin:.3 },
+  yellow: { hMin:28,  hMax:42,  sMin:.4, vMin:.4 },
+  green:  { hMin:42,  hMax:90,  sMin:.3, vMin:.25 },
+  blue:   { hMin:100, hMax:135, sMin:.3, vMin:.25 },
 };
 
-// ─────────────────────────────────────────────
-// ELEMENTOS DOM
-// ─────────────────────────────────────────────
-const video      = document.getElementById('video');
-const canvasProc = document.getElementById('canvas-proc');
-const canvasOvrl = document.getElementById('canvas-overlay');
-const ctxProc    = canvasProc.getContext('2d', { willReadFrequently: true });
-const ctxOvrl    = canvasOvrl.getContext('2d');
+// ─── DOM ──────────────────────────────────────
+const video     = document.getElementById('video');
+const cProc     = document.getElementById('canvas-proc');
+const cOvrl     = document.getElementById('canvas-overlay');
+const ctxP      = cProc.getContext('2d', { willReadFrequently: true });
+const ctxO      = cOvrl.getContext('2d');
+let   animId    = null;
 
-// ─────────────────────────────────────────────
-// CALIBRACIÓN
-// ─────────────────────────────────────────────
-function getEscala() {
-  const refReal = parseFloat(document.getElementById('ref-real').value) || 0.3;
-  const refPx   = parseFloat(document.getElementById('ref-px').value)   || 100;
-  return refReal / refPx;  // metros por píxel
+// ─── CALIBRACIÓN ─────────────────────────────
+function escala() {
+  const m  = parseFloat(document.getElementById('ref-m').value)  || 0.3;
+  const px = parseFloat(document.getElementById('ref-px').value) || 100;
+  return m / px;
 }
 
-function updateCalib() {
-  const e = getEscala();
+function updCalib() {
+  const e = escala();
   document.getElementById('calib-info').textContent =
-    `Escala: ${(e * 100).toFixed(3)} m/px · ${(1/e).toFixed(1)} px/m`;
+    `Escala: ${e.toFixed(5)} m/px · ${(1/e).toFixed(1)} px/m`;
 }
 
-['ref-real','ref-px'].forEach(id =>
-  document.getElementById(id).addEventListener('input', updateCalib)
-);
-updateCalib();
+['ref-m','ref-px'].forEach(id => document.getElementById(id).addEventListener('input', updCalib));
+updCalib();
 
-// ─────────────────────────────────────────────
-// INICIAR / DETENER CÁMARA
-// ─────────────────────────────────────────────
-async function toggleCamara() {
-  if (state.camaraActiva) {
-    detenerCamara();
-  } else {
-    await iniciarCamara();
-  }
-}
-
-async function iniciarCamara() {
-  setStatus('Solicitando acceso...', false);
+// ─── CÁMARA ───────────────────────────────────
+async function toggleCam() {
+  if (S.camON) { detenerCam(); return; }
+  setSt('Solicitando acceso...', '');
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: state.facingMode,
-        width:  { ideal: 1280 },
-        height: { ideal: 720 },
-      },
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false,
-    });
+    }).catch(() => navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
+
     video.srcObject = stream;
-    await new Promise(res => video.onloadedmetadata = res);
+    await new Promise(r => (video.onloadedmetadata = r));
     video.play();
+    S.camON = true;
 
-    state.camaraActiva = true;
-    setStatus('EN VIVO', true, false);
-    document.getElementById('btn-cam').textContent   = '⏹ Detener cámara';
-    document.getElementById('btn-track').disabled    = false;
-    document.getElementById('btn-flip').style.display = 'inline-block';
-    document.getElementById('color-selector').style.display = 'block';
-
-    // Ajustar tamaños de canvas
-    resizeCanvases();
-
-    // Iniciar loop de video
-    requestAnimationFrame(videoLoop);
-
-  } catch (err) {
-    setStatus('❌ Sin acceso a cámara: ' + err.message, false);
-    console.error(err);
+    resize();
+    setSt('EN VIVO', 'live');
+    document.getElementById('btn-cam').textContent     = '⏹ Apagar cámara';
+    document.getElementById('btn-iniciar').disabled   = false;
+    document.getElementById('color-sel').style.display = 'block';
+    animId = requestAnimationFrame(loop);
+  } catch (e) {
+    setSt('❌ ' + e.message, '');
   }
 }
 
-function detenerCamara() {
-  if (video.srcObject) {
-    video.srcObject.getTracks().forEach(t => t.stop());
-    video.srcObject = null;
-  }
-  cancelAnimationFrame(state.animId);
-  state.camaraActiva = false;
-  state.rastreando   = false;
-  state.prevFrame    = null;
-
-  document.getElementById('btn-cam').textContent  = '▶ Iniciar cámara';
-  document.getElementById('btn-track').textContent = '◎ Activar rastreo';
-  document.getElementById('btn-track').classList.remove('btn-active');
-  document.getElementById('btn-track').disabled    = true;
-  document.getElementById('btn-flip').style.display = 'none';
-  document.getElementById('color-selector').style.display = 'none';
-  setStatus('Cámara detenida', false);
-
-  // Limpiar overlay
-  ctxOvrl.clearRect(0, 0, canvasOvrl.width, canvasOvrl.height);
+function detenerCam() {
+  video.srcObject?.getTracks().forEach(t => t.stop());
+  video.srcObject = null;
+  cancelAnimationFrame(animId);
+  S.camON = false; S.capturando = false;
+  setSt('Cámara apagada', '');
+  document.getElementById('btn-cam').textContent    = '▶ Iniciar cámara';
+  document.getElementById('btn-iniciar').disabled  = true;
+  document.getElementById('btn-fin').style.display = 'none';
+  document.getElementById('btn-iniciar').style.display = 'inline-block';
+  document.getElementById('color-sel').style.display   = 'none';
+  document.getElementById('timer-overlay').style.display = 'none';
+  clearInterval(S.timerInterval);
+  ctxO.clearRect(0, 0, cOvrl.width, cOvrl.height);
 }
 
-function resizeCanvases() {
+function resize() {
   const w = video.videoWidth  || 640;
   const h = video.videoHeight || 480;
-  canvasProc.width  = w; canvasProc.height  = h;
-  canvasOvrl.width  = w; canvasOvrl.height  = h;
+  cProc.width = w; cProc.height = h;
+  cOvrl.width = w; cOvrl.height = h;
 }
 
-// ─────────────────────────────────────────────
-// VOLTEAR CÁMARA
-// ─────────────────────────────────────────────
-async function flipCam() {
-  state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
-  // el video frontal se espeja con CSS, el trasero no
-  video.style.transform = state.facingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
-  detenerCamara();
-  await iniciarCamara();
+// ─── INICIAR CAPTURA ─────────────────────────
+function iniciarCaptura() {
+  // Limpiar datos anteriores
+  Object.assign(S, { T:[], X:[], Y:[], Vx:[], Vy:[], V:[], A:[],
+    t0: null, prevFrame: null, prevX: null, prevY: null,
+    prevVx: null, prevVy: null, prevT: null });
+
+  S.capturando = true;
+  S.t0 = performance.now() / 1000;
+
+  setSt('GRABANDO', 'rec');
+  document.getElementById('tipo-pill').textContent = 'Capturando...';
+  document.getElementById('tipo-pill').className   = 'tipo-pill';
+
+  // Cambiar botones
+  document.getElementById('btn-iniciar').style.display  = 'none';
+  document.getElementById('btn-fin').style.display      = 'inline-block';
+  document.getElementById('btn-cam').disabled           = true;
+
+  // Timer visual
+  const timerEl = document.getElementById('timer-overlay');
+  timerEl.style.display = 'block';
+  timerEl.textContent   = '0.0';
+  S.timerInterval = setInterval(() => {
+    const t = (performance.now()/1000 - S.t0).toFixed(1);
+    timerEl.textContent = t + 's';
+  }, 100);
+
+  // Resetear gráficas live
+  [liveX, liveV, liveA].forEach(c => {
+    c.data.labels = []; c.data.datasets[0].data = []; c.update();
+  });
+  document.getElementById('reporte').style.display = 'none';
 }
 
-// ─────────────────────────────────────────────
-// RASTREO
-// ─────────────────────────────────────────────
-function toggleTracking() {
-  state.rastreando = !state.rastreando;
-  const btn = document.getElementById('btn-track');
-  if (state.rastreando) {
-    state.t0 = null;
-    state.prevX = null; state.prevY = null;
-    state.prevV = null; state.prevT = null;
-    state.prevFrame = null;
-    btn.textContent = '⏹ Detener rastreo';
-    btn.classList.add('btn-active');
-    setStatus('RASTREANDO', true, true);
-    document.getElementById('cam-legend').style.display = 'flex';
-  } else {
-    btn.textContent = '◎ Activar rastreo';
-    btn.classList.remove('btn-active');
-    setStatus('EN VIVO', true, false);
-    document.getElementById('cam-legend').style.display = 'none';
-  }
-}
-
-function setColorMode(mode) {
-  state.colorMode = mode;
-  document.querySelectorAll('.color-btn').forEach(b =>
-    b.classList.toggle('active', b.dataset.color === mode)
-  );
-}
-
-function updateSensib() {
-  state.sensibilidad = parseInt(document.getElementById('sensib').value);
-  document.getElementById('sensib-val').textContent = state.sensibilidad;
-}
-
-// ─────────────────────────────────────────────
-// LOOP DE VIDEO — se llama cada frame (~30-60fps)
-// ─────────────────────────────────────────────
-function videoLoop() {
-  if (!state.camaraActiva) return;
-  state.animId = requestAnimationFrame(videoLoop);
-
-  if (video.readyState < 2) return;
-
-  // Dibujar frame en canvas de proceso (oculto)
-  resizeCanvases();
-  ctxProc.save();
-  // Espejo horizontal para que coordenadas coincidan con overlay
-  if (state.facingMode === 'user') {
-    ctxProc.translate(canvasProc.width, 0);
-    ctxProc.scale(-1, 1);
-  }
-  ctxProc.drawImage(video, 0, 0, canvasProc.width, canvasProc.height);
-  ctxProc.restore();
-
-  if (!state.rastreando) {
-    // Solo mostrar overlay limpio
-    ctxOvrl.clearRect(0, 0, canvasOvrl.width, canvasOvrl.height);
+// ─── FINALIZAR CAPTURA ────────────────────────
+function finalizarCaptura() {
+  if (S.T.length < 5) {
+    alert('Se necesitan al menos 5 puntos de datos. Asegúrate de que el objeto sea visible.');
     return;
   }
 
-  // ── Obtener píxeles ──
-  const imgData = ctxProc.getImageData(0, 0, canvasProc.width, canvasProc.height);
-  const pixels  = imgData.data;
-  const W = canvasProc.width;
-  const H = canvasProc.height;
+  S.capturando = false;
+  clearInterval(S.timerInterval);
+
+  setSt('EN VIVO', 'live');
+  document.getElementById('btn-fin').style.display      = 'none';
+  document.getElementById('btn-iniciar').style.display  = 'none';
+  document.getElementById('btn-reset').style.display    = 'inline-block';
+  document.getElementById('btn-cam').disabled           = false;
+  document.getElementById('timer-overlay').style.display = 'none';
+
+  generarReporte();
+}
+
+// ─── LOOP DE VIDEO ────────────────────────────
+function loop() {
+  if (!S.camON) return;
+  animId = requestAnimationFrame(loop);
+  if (video.readyState < 2) return;
+
+  resize();
+
+  // Dibujar frame (espejado para cámara frontal)
+  ctxP.save();
+  ctxP.translate(cProc.width, 0);
+  ctxP.scale(-1, 1);
+  ctxP.drawImage(video, 0, 0, cProc.width, cProc.height);
+  ctxP.restore();
+
+  const W = cProc.width, H = cProc.height;
+  const img = ctxP.getImageData(0, 0, W, H);
+  const px  = img.data;
 
   let cx = null, cy = null;
-
-  if (state.colorMode === 'motion') {
-    [cx, cy] = detectarMovimiento(pixels, W, H);
+  if (S.colorMode === 'motion') {
+    [cx, cy] = detectMotion(px, W, H);
   } else {
-    [cx, cy] = detectarColor(pixels, W, H, state.colorMode);
+    [cx, cy] = detectColor(px, W, H);
   }
 
-  // ── Dibujar overlay ──
-  ctxOvrl.clearRect(0, 0, W, H);
-
-  // Cuadrícula de referencia sutil
-  dibujarGrilla(ctxOvrl, W, H);
+  // Overlay
+  ctxO.clearRect(0, 0, W, H);
+  drawGrid(W, H);
 
   if (cx !== null) {
-    const ahora = performance.now() / 1000;
-    if (!state.t0) state.t0 = ahora;
-    const t = ahora - state.t0;
+    const t = performance.now()/1000 - (S.t0 || performance.now()/1000);
 
-    procesarPunto(cx, cy, t);
-    dibujarCentroide(ctxOvrl, cx, cy, W, H);
-    dibujarTrayectoriaOverlay(ctxOvrl);
-  } else {
-    // Sin detección
-    dibujarMensaje(ctxOvrl, W, H, '⚠ Sin objeto detectado');
+    if (S.capturando) {
+      registrar(cx, cy, t);
+    }
+
+    drawTarget(cx, cy, W, H);
+  } else if (S.capturando) {
+    drawMsg(W, H, '⚠ No se detecta el objeto — muévelo hacia la cámara');
   }
 }
 
-// ─────────────────────────────────────────────
-// DETECCIÓN POR MOVIMIENTO (frame diff)
-// ─────────────────────────────────────────────
-function detectarMovimiento(pixels, W, H) {
-  if (!state.prevFrame || state.prevFrame.length !== pixels.length) {
-    state.prevFrame = new Uint8ClampedArray(pixels);
-    return [null, null];
+// ─── DETECCIÓN POR MOVIMIENTO ────────────────
+function detectMotion(px, W, H) {
+  if (!S.prevFrame || S.prevFrame.length !== px.length) {
+    S.prevFrame = new Uint8ClampedArray(px); return [null, null];
   }
-
-  const umbral = state.sensibilidad * 2;
-  let sumX = 0, sumY = 0, count = 0;
-
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const i = (y * W + x) * 4;
-      const dr = Math.abs(pixels[i]   - state.prevFrame[i]);
-      const dg = Math.abs(pixels[i+1] - state.prevFrame[i+1]);
-      const db = Math.abs(pixels[i+2] - state.prevFrame[i+2]);
-      const diff = (dr + dg + db) / 3;
-      if (diff > umbral) {
-        sumX += x; sumY += y; count++;
-      }
+  const umbral = S.sens * 2.2;
+  let sx = 0, sy = 0, n = 0;
+  for (let y = 2; y < H-2; y++) {
+    for (let x = 2; x < W-2; x++) {
+      const i = (y*W+x)*4;
+      const d = (Math.abs(px[i]-S.prevFrame[i]) +
+                 Math.abs(px[i+1]-S.prevFrame[i+1]) +
+                 Math.abs(px[i+2]-S.prevFrame[i+2])) / 3;
+      if (d > umbral) { sx += x; sy += y; n++; }
     }
   }
-
-  state.prevFrame = new Uint8ClampedArray(pixels);
-
-  if (count < 200) return [null, null];  // muy poco movimiento
-  return [Math.round(sumX / count), Math.round(sumY / count)];
+  S.prevFrame = new Uint8ClampedArray(px);
+  if (n < 300) return [null, null];
+  return [Math.round(sx/n), Math.round(sy/n)];
 }
 
-// ─────────────────────────────────────────────
-// DETECCIÓN POR COLOR (HSV)
-// ─────────────────────────────────────────────
-function detectarColor(pixels, W, H, colorMode) {
-  const range = COLOR_RANGES[colorMode];
-  if (!range) return [null, null];
-
-  let sumX = 0, sumY = 0, count = 0;
-  const minS = range.sMin / 255;
-  const minV = range.vMin / 255;
-
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const i = (y * W + x) * 4;
-      const r = pixels[i] / 255;
-      const g = pixels[i+1] / 255;
-      const b = pixels[i+2] / 255;
-
-      const [h, s, v] = rgbToHsv(r, g, b);
-
-      let inRange = false;
-      if (colorMode === 'red') {
-        inRange = ((h >= 0 && h <= range.hMax) || (h >= 350 && h <= 360)) && s >= minS && v >= minV;
-      } else {
-        inRange = h >= range.hMin && h <= range.hMax && s >= minS && v >= minV;
-      }
-
-      if (inRange) {
-        sumX += x; sumY += y; count++;
-      }
+// ─── DETECCIÓN POR COLOR ─────────────────────
+function detectColor(px, W, H) {
+  const r = COLOR_HSV[S.colorMode]; if (!r) return [null,null];
+  let sx=0, sy=0, n=0;
+  for (let y=0; y<H; y++) {
+    for (let x=0; x<W; x++) {
+      const i=(y*W+x)*4;
+      const [h,s,v] = rgb2hsv(px[i]/255, px[i+1]/255, px[i+2]/255);
+      let ok = s>=r.sMin && v>=r.vMin;
+      if (S.colorMode==='red') ok = ok && (h<=r.hMax || h>=350);
+      else ok = ok && h>=r.hMin && h<=r.hMax;
+      if (ok) { sx+=x; sy+=y; n++; }
     }
   }
-
-  const minPx = Math.max(80, state.sensibilidad * 5);
-  if (count < minPx) return [null, null];
-  return [Math.round(sumX / count), Math.round(sumY / count)];
+  const minPx = Math.max(60, S.sens*4);
+  if (n<minPx) return [null,null];
+  return [Math.round(sx/n), Math.round(sy/n)];
 }
 
-function rgbToHsv(r, g, b) {
-  const max = Math.max(r, g, b);
-  const min  = Math.min(r, g, b);
-  const d    = max - min;
-  let h = 0;
-  const s = max === 0 ? 0 : d / max;
-  const v = max;
-  if (d !== 0) {
-    if      (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
-    else if (max === g) h = ((b - r) / d + 2) / 6;
-    else                h = ((r - g) / d + 4) / 6;
+function rgb2hsv(r,g,b) {
+  const mx=Math.max(r,g,b), mn=Math.min(r,g,b), d=mx-mn;
+  let h=0;
+  if(d){
+    if(mx===r) h=((g-b)/d+(g<b?6:0))/6;
+    else if(mx===g) h=((b-r)/d+2)/6;
+    else h=((r-g)/d+4)/6;
   }
-  return [h * 360, s, v];
+  return [h*360, mx?d/mx:0, mx];
 }
 
-// ─────────────────────────────────────────────
-// PROCESAMIENTO FÍSICO
-// ─────────────────────────────────────────────
-function procesarPunto(cx, cy, t) {
-  const esc = getEscala(); // m/px
+// ─── FÍSICA — REGISTRAR PUNTO ────────────────
+function registrar(cx, cy, t) {
+  const esc = escala();
+  const W = cProc.width, H = cProc.height;
 
-  // Convertir px → metros (origen en centro del frame)
-  const W = canvasProc.width;
-  const H = canvasProc.height;
-  const xM = (cx - W / 2) * esc;
-  const yM = (H / 2 - cy) * esc;  // Y invertida para que arriba sea positivo
+  // px → metros (origen en centro del frame)
+  const xM =  (cx - W/2) * esc;
+  const yM =  (H/2 - cy) * esc;   // Y positivo hacia arriba
 
   // Velocidad por diferencias finitas
-  let vx = 0, vy = 0, v = 0;
-  if (state.prevX !== null && state.prevT !== null) {
-    const dt = t - state.prevT;
-    if (dt > 0.001) {
-      vx = (xM - state.prevX) / dt;
-      vy = (yM - state.prevY) / dt;
-      v  = Math.sqrt(vx * vx + vy * vy);
-    }
+  let vx=0, vy=0, v=0;
+  if (S.prevX!==null && S.prevT!==null) {
+    const dt = t - S.prevT;
+    if (dt > 0.005) {
+      vx = (xM - S.prevX) / dt;
+      vy = (yM - S.prevY) / dt;
+      v  = Math.sqrt(vx*vx + vy*vy);
+    } else return; // frame demasiado cercano
   }
 
   // Aceleración por diferencias finitas de v
-  let a = 0;
-  if (state.prevV !== null && state.prevT !== null) {
-    const dt = t - state.prevT;
-    if (dt > 0.001) {
-      a = (v - state.prevV) / dt;
+  let ax=0, ay=0, a=0;
+  if (S.prevVx!==null && S.prevT!==null) {
+    const dt = t - S.prevT;
+    if (dt > 0.005) {
+      ax = (vx - S.prevVx) / dt;
+      ay = (vy - S.prevVy) / dt;
+      a  = Math.sqrt(ax*ax + ay*ay) * Math.sign(ay); // signed por eje y
     }
   }
-
-  // Distancia total recorrida
-  let dist = 0;
-  if (state.posicionesX.length > 0) {
-    const px = state.posicionesX[state.posicionesX.length - 1];
-    const py = state.posicionesY[state.posicionesY.length - 1];
-    dist = Math.sqrt((xM - px) ** 2 + (yM - py) ** 2);
-  }
-  const distTotal = (state.trayectoria.length > 1)
-    ? state.trayectoria.slice(1).reduce((acc, p, i) => {
-        const prev = state.trayectoria[i];
-        return acc + Math.sqrt((p.x - prev.x) ** 2 + (p.y - prev.y) ** 2);
-      }, 0)
-    : 0;
 
   // Guardar
-  state.tiempos.push(t);
-  state.posicionesX.push(xM);
-  state.posicionesY.push(yM);
-  state.velocidades.push(v);
-  state.aceleraciones.push(a);
-  state.trayectoria.push({ x: xM, y: yM });
+  S.T.push(t); S.X.push(xM); S.Y.push(yM);
+  S.Vx.push(vx); S.Vy.push(vy); S.V.push(v); S.A.push(a);
 
-  state.prevX = xM; state.prevY = yM;
-  state.prevV = v;  state.prevT = t;
+  S.prevX=xM; S.prevY=yM; S.prevVx=vx; S.prevVy=vy; S.prevT=t;
 
-  // Clasificar movimiento
-  const tipo = clasificar();
+  // Actualizar UI live
+  document.getElementById('lv-x').textContent     = xM.toFixed(3);
+  document.getElementById('lv-v').textContent     = v.toFixed(3);
+  document.getElementById('lv-a').textContent     = a.toFixed(3);
+  document.getElementById('lv-t').textContent     = t.toFixed(2);
+  document.getElementById('lv-frames').textContent= S.T.length;
 
-  // Actualizar UI
-  document.getElementById('m-pos').textContent  = xM.toFixed(3);
-  document.getElementById('m-vel').textContent  = v.toFixed(3);
-  document.getElementById('m-acc').textContent  = a.toFixed(3);
-  document.getElementById('m-time').textContent = t.toFixed(2);
-  document.getElementById('m-dist').textContent = distTotal.toFixed(3);
+  const cl = clasificar();
+  document.getElementById('tipo-pill').textContent = cl.label;
+  document.getElementById('tipo-pill').className   = 'tipo-pill ' + cl.css;
 
-  const pill = document.getElementById('tipo-pill');
-  pill.textContent  = tipo.label;
-  pill.className    = 'tipo-pill ' + tipo.css;
-
-  // Actualizar gráficas (cada 3 frames para no saturar)
-  if (state.tiempos.length % 3 === 0) {
-    actualizarGraficas();
-  }
-
-  // Actualizar trayectoria
-  actualizarTrayectoria();
+  // Actualizar gráficas live cada 4 frames
+  if (S.T.length % 4 === 0) updLiveCharts();
 }
 
-// ─────────────────────────────────────────────
-// CLASIFICACIÓN DEL MOVIMIENTO
-// ─────────────────────────────────────────────
+// ─── CLASIFICAR ───────────────────────────────
 function clasificar() {
-  const n = state.aceleraciones.length;
-  if (n < 5) return { label: 'Calculando...', css: '' };
-
-  const ventana = Math.min(20, n);
-  const aVals   = state.aceleraciones.slice(-ventana);
-  const aMed    = aVals.reduce((s, v) => s + v, 0) / aVals.length;
-
-  if (Math.abs(aMed) < 0.3) {
-    return { label: 'MRU — Velocidad constante', css: 'mru' };
-  } else if (Math.abs(aMed + 9.81) < 2.0) {
-    return { label: 'Caída libre — g ≈ 9.81 m/s²', css: 'caida' };
-  } else {
-    return { label: `MRUV — a ≈ ${aMed.toFixed(2)} m/s²`, css: 'mruv' };
-  }
+  const n = S.A.length;
+  if (n < 5) return { label:'Calculando...', css:'' };
+  const win = S.A.slice(-Math.min(20,n));
+  const am  = win.reduce((s,v)=>s+v,0)/win.length;
+  if (Math.abs(am) < 0.3)           return { label:'MRU — Velocidad constante',  css:'mru' };
+  if (Math.abs(am + 9.81) < 2.5)    return { label:'Caída libre — g ≈ 9.81 m/s²', css:'caida' };
+  return { label:`MRUV — a ≈ ${am.toFixed(2)} m/s²`, css:'mruv' };
 }
 
-// ─────────────────────────────────────────────
-// DIBUJO DEL OVERLAY
-// ─────────────────────────────────────────────
-function dibujarGrilla(ctx, W, H) {
-  ctx.strokeStyle = 'rgba(255,255,255,.06)';
-  ctx.lineWidth = 1;
-  const paso = 80;
-  for (let x = 0; x < W; x += paso) {
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-  }
-  for (let y = 0; y < H; y += paso) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-  }
-  // Ejes centrales
-  ctx.strokeStyle = 'rgba(255,255,255,.12)';
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(0, H/2); ctx.lineTo(W, H/2); ctx.stroke();
+// ─── DIBUJO OVERLAY ───────────────────────────
+const trail = [];
+
+function drawGrid(W, H) {
+  ctxO.strokeStyle = 'rgba(255,255,255,.05)';
+  ctxO.lineWidth = 1;
+  for(let x=0;x<W;x+=80){ctxO.beginPath();ctxO.moveTo(x,0);ctxO.lineTo(x,H);ctxO.stroke()}
+  for(let y=0;y<H;y+=80){ctxO.beginPath();ctxO.moveTo(0,y);ctxO.lineTo(W,y);ctxO.stroke()}
+  ctxO.strokeStyle='rgba(255,255,255,.1)';
+  ctxO.beginPath();ctxO.moveTo(W/2,0);ctxO.lineTo(W/2,H);ctxO.stroke();
+  ctxO.beginPath();ctxO.moveTo(0,H/2);ctxO.lineTo(W,H/2);ctxO.stroke();
 }
 
-let trayPts = [];  // puntos en px para overlay
-
-function dibujarCentroide(ctx, cx, cy, W, H) {
-  // Guardar punto para estela
-  trayPts.push({ x: cx, y: cy });
-  if (trayPts.length > 120) trayPts.shift();
+function drawTarget(cx, cy, W, H) {
+  trail.push({x:cx,y:cy});
+  if(trail.length>150) trail.shift();
 
   // Estela
-  if (trayPts.length > 1) {
-    for (let i = 1; i < trayPts.length; i++) {
-      const alpha = i / trayPts.length;
-      ctx.strokeStyle = `rgba(239,159,39,${alpha * 0.7})`;
-      ctx.lineWidth   = 2 * alpha;
-      ctx.beginPath();
-      ctx.moveTo(trayPts[i-1].x, trayPts[i-1].y);
-      ctx.lineTo(trayPts[i].x,   trayPts[i].y);
-      ctx.stroke();
-    }
+  for(let i=1;i<trail.length;i++){
+    const a=i/trail.length;
+    ctxO.strokeStyle=`rgba(239,159,39,${a*.7})`;
+    ctxO.lineWidth=2*a;
+    ctxO.beginPath();ctxO.moveTo(trail[i-1].x,trail[i-1].y);ctxO.lineTo(trail[i].x,trail[i].y);ctxO.stroke();
   }
 
-  // Círculo exterior pulsante
-  ctx.strokeStyle = 'rgba(239,159,39,0.5)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(cx, cy, 28, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // Círculo interior
-  ctx.fillStyle = 'rgba(239,159,39,0.9)';
-  ctx.beginPath();
-  ctx.arc(cx, cy, 7, 0, Math.PI * 2);
-  ctx.fill();
+  // Círculos
+  ctxO.strokeStyle='rgba(239,159,39,.5)';ctxO.lineWidth=2;
+  ctxO.beginPath();ctxO.arc(cx,cy,30,0,Math.PI*2);ctxO.stroke();
+  ctxO.fillStyle='#EF9F27';
+  ctxO.beginPath();ctxO.arc(cx,cy,7,0,Math.PI*2);ctxO.fill();
 
   // Crosshair
-  ctx.strokeStyle = 'rgba(239,159,39,0.6)';
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(cx - 18, cy); ctx.lineTo(cx + 18, cy); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(cx, cy - 18); ctx.lineTo(cx, cy + 18); ctx.stroke();
+  ctxO.strokeStyle='rgba(239,159,39,.6)';ctxO.lineWidth=1;
+  ctxO.beginPath();ctxO.moveTo(cx-22,cy);ctxO.lineTo(cx+22,cy);ctxO.stroke();
+  ctxO.beginPath();ctxO.moveTo(cx,cy-22);ctxO.lineTo(cx,cy+22);ctxO.stroke();
 
-  // Coordenadas en pantalla
-  const esc = getEscala();
-  const xM = ((cx - W/2) * esc).toFixed(3);
-  const yM = ((H/2 - cy) * esc).toFixed(3);
-  ctx.fillStyle = 'rgba(11,12,16,.7)';
-  ctx.fillRect(cx + 14, cy - 22, 130, 20);
-  ctx.fillStyle = '#EF9F27';
-  ctx.font = '11px Space Mono, monospace';
-  ctx.fillText(`x:${xM}m  y:${yM}m`, cx + 18, cy - 7);
-}
+  // Etiqueta
+  const esc=escala(), W2=cProc.width, H2=cProc.height;
+  const xm=((cx-W2/2)*esc).toFixed(3);
+  const ym=((H2/2-cy)*esc).toFixed(3);
+  ctxO.fillStyle='rgba(11,12,16,.75)';ctxO.fillRect(cx+14,cy-24,145,20);
+  ctxO.fillStyle='#EF9F27';ctxO.font='11px Space Mono,monospace';
+  ctxO.fillText(`x:${xm}m  y:${ym}m`,cx+18,cy-9);
 
-function dibujarTrayectoriaOverlay() {
-  // Ya dibujada dentro de dibujarCentroide como estela
-}
-
-function dibujarMensaje(ctx, W, H, msg) {
-  ctx.fillStyle = 'rgba(239,159,39,0.15)';
-  ctx.fillRect(W/2 - 130, H/2 - 18, 260, 36);
-  ctx.fillStyle = '#EF9F27';
-  ctx.font = '13px Space Mono, monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText(msg, W/2, H/2 + 5);
-  ctx.textAlign = 'left';
-}
-
-// ─────────────────────────────────────────────
-// GRÁFICAS CHART.JS
-// ─────────────────────────────────────────────
-const GRID_CLR = 'rgba(255,255,255,.06)';
-const TICK_CLR = '#454760';
-
-function mkChart(id, color, yLbl) {
-  return new Chart(document.getElementById(id), {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [{
-        data: [], borderColor: color, borderWidth: 2,
-        pointRadius: 0, tension: 0.3, fill: false,
-      }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: {
-          ticks: { color: TICK_CLR, maxTicksLimit: 6, font: { size: 10, family: 'Space Mono' } },
-          grid:  { color: GRID_CLR },
-          title: { display: true, text: 't (s)', color: TICK_CLR, font: { size: 10 } },
-        },
-        y: {
-          ticks: { color: TICK_CLR, maxTicksLimit: 5, font: { size: 10, family: 'Space Mono' } },
-          grid:  { color: GRID_CLR },
-          title: { display: true, text: yLbl, color: TICK_CLR, font: { size: 10 } },
-        },
-      },
-    },
-  });
-}
-
-const chartX = mkChart('chartX', '#5DCAA5', 'x (m)');
-const chartV = mkChart('chartV', '#85B7EB', 'v (m/s)');
-const chartA = mkChart('chartA', '#EF9F27', 'a (m/s²)');
-
-function actualizarGraficas() {
-  const n = state.tiempos.length;
-  if (n === 0) return;
-
-  // Submuestrear si hay muchos puntos
-  const paso = n > 300 ? Math.floor(n / 300) : 1;
-  const indices = [];
-  for (let i = 0; i < n; i += paso) indices.push(i);
-
-  const labels = indices.map(i => state.tiempos[i].toFixed(2));
-
-  const update = (chart, vals) => {
-    chart.data.labels = labels;
-    chart.data.datasets[0].data = indices.map(i => parseFloat(vals[i].toFixed(4)));
-    chart.update('none');
-  };
-
-  update(chartX, state.posicionesX);
-  update(chartV, state.velocidades);
-  update(chartA, state.aceleraciones);
-}
-
-// ─────────────────────────────────────────────
-// TRAYECTORIA 2D (scatter)
-// ─────────────────────────────────────────────
-let chartTray = null;
-
-function initTrayectoria() {
-  const ctx = document.getElementById('chartTray').getContext('2d');
-  chartTray = new Chart(ctx, {
-    type: 'scatter',
-    data: {
-      datasets: [{
-        label: 'Trayectoria',
-        data: [],
-        borderColor: '#EF9F27',
-        backgroundColor: 'rgba(239,159,39,.4)',
-        pointRadius: 2,
-        showLine: true,
-        tension: 0.3,
-        borderWidth: 1.5,
-      }],
-    },
-    options: {
-      responsive: false,
-      maintainAspectRatio: false,
-      animation: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: {
-          ticks: { color: TICK_CLR, font: { size: 10, family: 'Space Mono' } },
-          grid:  { color: GRID_CLR },
-          title: { display: true, text: 'x (m)', color: TICK_CLR },
-        },
-        y: {
-          ticks: { color: TICK_CLR, font: { size: 10, family: 'Space Mono' } },
-          grid:  { color: GRID_CLR },
-          title: { display: true, text: 'y (m)', color: TICK_CLR },
-        },
-      },
-    },
-  });
-}
-
-function actualizarTrayectoria() {
-  if (!chartTray) return;
-  const n = state.trayectoria.length;
-  if (n === 0) return;
-  const paso = n > 200 ? Math.floor(n / 200) : 1;
-  const pts = [];
-  for (let i = 0; i < n; i += paso) {
-    pts.push({ x: parseFloat(state.trayectoria[i].x.toFixed(4)),
-               y: parseFloat(state.trayectoria[i].y.toFixed(4)) });
+  if(S.capturando){
+    ctxO.fillStyle='rgba(231,76,60,.85)';ctxO.fillRect(cx+14,cy-48,145,20);
+    ctxO.fillStyle='#fff';ctxO.font='10px Space Mono,monospace';
+    const t=S.T.length>0?S.T[S.T.length-1].toFixed(2):'0.00';
+    const v=S.V.length>0?S.V[S.V.length-1].toFixed(3):'0.000';
+    ctxO.fillText(`t:${t}s  v:${v}m/s`,cx+18,cy-33);
   }
-  chartTray.data.datasets[0].data = pts;
-  chartTray.update('none');
 }
 
-function limpiarTrayectoria() {
-  trayPts = [];
-  if (chartTray) { chartTray.data.datasets[0].data = []; chartTray.update(); }
+function drawMsg(W, H, msg) {
+  ctxO.fillStyle='rgba(231,76,60,.15)';ctxO.fillRect(W/2-170,H/2-18,340,36);
+  ctxO.fillStyle='#e74c4c';ctxO.font='13px Space Mono,monospace';
+  ctxO.textAlign='center';ctxO.fillText(msg,W/2,H/2+5);ctxO.textAlign='left';
 }
 
-// ─────────────────────────────────────────────
-// RESET
-// ─────────────────────────────────────────────
-function resetDatos() {
-  state.tiempos = []; state.posicionesX = []; state.posicionesY = [];
-  state.velocidades = []; state.aceleraciones = [];
-  state.trayectoria = [];
-  state.prevX = null; state.prevY = null;
-  state.prevV = null; state.prevT = null;
-  state.t0    = null;
-  state.prevFrame = null;
-  trayPts = [];
+// ─── GRÁFICAS LIVE ────────────────────────────
+const G={color:'rgba(255,255,255,.06)', tick:'#454760'};
 
-  ['m-pos','m-vel','m-acc','m-dist'].forEach(id =>
-    document.getElementById(id).textContent = '—'
-  );
-  document.getElementById('m-time').textContent = '0.0';
-  document.getElementById('tipo-pill').textContent = '—';
-  document.getElementById('tipo-pill').className  = 'tipo-pill';
-
-  [chartX, chartV, chartA].forEach(c => {
-    c.data.labels = []; c.data.datasets[0].data = []; c.update();
+function mkChart(id,color,yLbl) {
+  return new Chart(document.getElementById(id),{
+    type:'line',
+    data:{labels:[],datasets:[{data:[],borderColor:color,borderWidth:2,pointRadius:0,tension:0.3,fill:false}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:G.tick,maxTicksLimit:6,font:{size:10,family:'Space Mono'}},grid:{color:G.color},
+           title:{display:true,text:'t (s)',color:G.tick,font:{size:10}}},
+        y:{ticks:{color:G.tick,maxTicksLimit:5,font:{size:10,family:'Space Mono'}},grid:{color:G.color},
+           title:{display:true,text:yLbl,color:G.tick,font:{size:10}}},
+      },
+    },
   });
-  limpiarTrayectoria();
 }
 
-// ─────────────────────────────────────────────
-// STATUS
-// ─────────────────────────────────────────────
-function setStatus(msg, dotLive, dotTrack) {
-  document.getElementById('status-text').textContent = msg;
-  const dot = document.querySelector('.status-dot');
-  dot.className = 'status-dot';
-  if (dotTrack) dot.classList.add('track');
-  else if (dotLive) dot.classList.add('live');
+const liveX = mkChart('cX','#5DCAA5','x (m)');
+const liveV = mkChart('cV','#85B7EB','v (m/s)');
+const liveA = mkChart('cA','#EF9F27','a (m/s²)');
+
+function updLiveCharts() {
+  const n=S.T.length, paso=n>300?Math.ceil(n/300):1;
+  const idx=[]; for(let i=0;i<n;i+=paso) idx.push(i);
+  const lbl=idx.map(i=>S.T[i].toFixed(2));
+  const upd=(c,arr)=>{c.data.labels=lbl;c.data.datasets[0].data=idx.map(i=>+arr[i].toFixed(4));c.update('none')};
+  upd(liveX,S.X); upd(liveV,S.V); upd(liveA,S.A);
 }
 
-// ─────────────────────────────────────────────
-// INICIO
-// ─────────────────────────────────────────────
-window.addEventListener('DOMContentLoaded', () => {
-  initTrayectoria();
-  updateCalib();
-  setStatus('Listo — presiona Iniciar cámara', false);
-});
+// ─── REPORTE FINAL ────────────────────────────
+let repX=null,repV=null,repA=null,repTray=null;
 
-// Exponer funciones al HTML
-window.toggleCamara  = toggleCamara;
-window.toggleTracking= toggleTracking;
-window.resetDatos    = resetDatos;
-window.flipCam       = flipCam;
-window.setColorMode  = setColorMode;
-window.updateSensib  = updateSensib;
-window.limpiarTrayectoria = limpiarTrayectoria;
+function generarReporte() {
+  const n = S.T.length;
+  const cl = clasificar();
+  const dur = S.T[n-1] - S.T[0];
+
+  // Submuestrear para gráficas del reporte
+  const paso = Math.max(1, Math.ceil(n/200));
+  const idx=[]; for(let i=0;i<n;i+=paso) idx.push(i);
+  const lbl = idx.map(i=>S.T[i].toFixed(3));
+  const xs  = idx.map(i=>+S.X[i].toFixed(4));
+  const ys  = idx.map(i=>+S.Y[i].toFixed(4));
+  const vs  = idx.map(i=>+S.V[i].toFixed(4));
+  const as_ = idx.map(i=>+S.A[i].toFixed(4));
+
+  // KPIs
+  const distTotal = S.X.reduce((acc,_,i)=>i===0?0:acc+Math.sqrt((S.X[i]-S.X[i-1])**2+(S.Y[i]-S.Y[i-1])**2),0);
+  const vMax = Math.max(...S.V);
+  const aMed = S.A.reduce((s,v)=>s+v,0)/n;
+
+  document.getElementById('r-x0').textContent  = S.X[0].toFixed(3);
+  document.getElementById('r-xf').textContent  = S.X[n-1].toFixed(3);
+  document.getElementById('r-dist').textContent= distTotal.toFixed(3);
+  document.getElementById('r-vmax').textContent= vMax.toFixed(3);
+  document.getElementById('r-amed').textContent= aMed.toFixed(3);
+
+  document.getElementById('rep-subtitulo').textContent =
+    `${cl.label} · duración: ${dur.toFixed(2)} s · ${n} puntos capturados`;
+  const rPill = document.getElementById('rep-tipo-pill');
+  rPill.textContent = cl.label;
+  rPill.className   = 'tipo-pill ' + cl.css;
+
+  // Destruir gráficas anteriores si existen
+  [repX,repV,repA,repTray].forEach(c => c?.destroy());
+
+  // Gráficas reporte
+  repX = mkRepChart('rX','#5DCAA5','x (m)',lbl,xs);
+  repV = mkRepChart('rV','#85B7EB','v (m/s)',lbl,vs);
+  repA = mkRepChart('rA','#EF9F27','a (m/s²)',lbl,as_);
+
+  // Trayectoria 2D
+  repTray = new Chart(document.getElementById('rTray'),{
+    type:'scatter',
+    data:{datasets:[{
+      label:'Trayectoria',
+      data:idx.map(i=>({x:+S.X[i].toFixed(4),y:+S.Y[i].toFixed(4)})),
+      borderColor:'#EF9F27',backgroundColor:'rgba(239,159,39,.4)',
+      pointRadius:2.5,showLine:true,tension:0.3,borderWidth:1.5,
+    }]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:G.tick,font:{size:10,family:'Space Mono'}},grid:{color:G.color},
+           title:{display:true,text:'x (m)',color:G.tick}},
+        y:{ticks:{color:G.tick,font:{size:10,family:'Space Mono'}},grid:{color:G.color},
+           title:{display:true,text:'y (m)',color:G.tick}},
+      },
+    },
+  });
+
+  // Tabla de puntos clave (cada ~10% del recorrido)
+  const tbody = document.getElementById('rep-tbody');
+  tbody.innerHTML='';
+  const step = Math.max(1,Math.floor(n/12));
+  const puntos = [0];
+  for(let i=step;i<n;i+=step) puntos.push(i);
+  puntos.push(n-1);
+  const vistos = new Set();
+  puntos.filter(i=>{ if(vistos.has(i)) return false; vistos.add(i); return true; })
+    .forEach((i,row)=>{
+      const dt=i>0?(S.T[i]-S.T[i-1]).toFixed(4):'—';
+      const dx=i>0?(S.X[i]-S.X[i-1]).toFixed(4):'—';
+      const vOk=Math.abs(S.V[i])<50;
+      const aOk=Math.abs(S.A[i])<100;
+      const tr=document.createElement('tr');
+      tr.innerHTML=`
+        <td>${row+1}</td>
+        <td>${S.T[i].toFixed(3)}</td>
+        <td>${S.X[i].toFixed(4)}</td>
+        <td>${S.Y[i].toFixed(4)}</td>
+        <td><span class="chip ${vOk?'chip-ok':'chip-warn'}">${S.V[i].toFixed(4)}</span></td>
+        <td><span class="chip ${aOk?'chip-ok':'chip-warn'}">${S.A[i].toFixed(4)}</span></td>
+        <td>${dx}</td><td>${dt}</td>`;
+      tbody.appendChild(tr);
+    });
+
+  // Ecuaciones con valores reales
+  const x0=S.X[0], xf=S.X[n-1], v0=S.V[0], vf=S.V[n-1];
+  document.getElementById('rep-eqs').innerHTML=`
+    <div class="eq-box">
+      <div class="eq-tipo" style="color:#5DCAA5">DESPLAZAMIENTO</div>
+      <div class="eq-f">Δx = xf − x₀</div>
+      <div class="eq-res">= ${xf.toFixed(4)} − ${x0.toFixed(4)}</div>
+      <div class="eq-res">= ${(xf-x0).toFixed(4)} m</div>
+    </div>
+    <div class="eq-box">
+      <div class="eq-tipo" style="color:#85B7EB">VELOCIDAD MEDIA</div>
+      <div class="eq-f">v̄ = Δx / Δt</div>
+      <div class="eq-res">= ${(xf-x0).toFixed(4)} / ${dur.toFixed(4)}</div>
+      <div class="eq-res">= ${((xf-x0)/dur).toFixed(4)} m/s</div>
+    </div>
+    <div class="eq-box">
+      <div class="eq-tipo" style="color:#EF9F27">ACELERACIÓN MEDIA</div>
+      <div class="eq-f">ā = Δv / Δt</div>
+      <div class="eq-res">= ${(vf-v0).toFixed(4)} / ${dur.toFixed(4)}</div>
+      <div class="eq-res">= ${((vf-v0)/dur).toFixed(4)} m/s²</div>
+    </div>
+    <div class="eq-box">
+      <div class="eq-tipo" style="color:#5DCAA5">MRU VERIFICACIÓN</div>
+      <div class="eq-f">x = x₀ + v₀·t</div>
+      <div class="eq-res">= ${x0.toFixed(4)} + ${v0.toFixed(4)}·${dur.toFixed(4)}</div>
+      <div class="eq-res">= ${(x0+v0*dur).toFixed(4)} m</div>
+      <div class="eq-desc">Real: ${xf.toFixed(4)} m</div>
+    </div>
+    <div class="eq-box">
+      <div class="eq-tipo" style="color:#85B7EB">MRUV VERIFICACIÓN</div>
+      <div class="eq-f">x = x₀ + v₀t + ½at²</div>
+      <div class="eq-res">= ${x0.toFixed(4)} + ${v0.toFixed(4)}·t + ½·${aMed.toFixed(4)}·t²</div>
+      <div class="eq-res">t = ${dur.toFixed(4)} s → ${(x0+v0*dur+0.5*aMed*dur*dur).toFixed(4)} m</div>
+      <div class="eq-desc">Real: ${xf.toFixed(4)} m</div>
+    </div>
+    <div class="eq-box">
+      <div class="eq-tipo" style="color:#EF9F27">DISTANCIA TOTAL</div>
+      <div class="eq-f">d = Σ|Δxᵢ|</div>
+      <div class="eq-res">= ${distTotal.toFixed(4)} m</div>
+      <div class="eq-desc">v máx = ${vMax.toFixed(4)} m/s</div>
+    </div>`;
+
+  // Mostrar reporte
+  const rep = document.getElementById('reporte');
+  rep.style.display = 'block';
+  rep.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function mkRepChart(id,color,yLbl,labels,data) {
+  return new Chart(document.getElementById(id),{
+    type:'line',
+    data:{labels,datasets:[{data,borderColor:color,borderWidth:2,pointRadius:0,tension:0.3,fill:false}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:G.tick,maxTicksLimit:8,font:{size:10,family:'Space Mono'}},grid:{color:G.color},
+           title:{display:true,text:'t (s)',color:G.tick,font:{size:10}}},
+        y:{ticks:{color:G.tick,maxTicksLimit:6,font:{size:10,family:'Space Mono'}},grid:{color:G.color},
+           title:{display:true,text:yLbl,color:G.tick,font:{size:10}}},
+      },
+    },
+  });
+}
+
+// ─── RESET TOTAL ─────────────────────────────
+function resetTodo() {
+  Object.assign(S,{T:[],X:[],Y:[],Vx:[],Vy:[],V:[],A:[],
+    t0:null,prevFrame:null,prevX:null,prevY:null,
+    prevVx:null,prevVy:null,prevT:null,capturando:false});
+  trail.length=0;
+  clearInterval(S.timerInterval);
+
+  document.getElementById('reporte').style.display     = 'none';
+  document.getElementById('btn-iniciar').style.display = 'inline-block';
+  document.getElementById('btn-fin').style.display     = 'none';
+  document.getElementById('btn-reset').style.display   = 'none';
+  document.getElementById('btn-cam').disabled          = false;
+  document.getElementById('timer-overlay').style.display='none';
+
+  ['lv-x','lv-v','lv-a','lv-frames'].forEach(id=>document.getElementById(id).textContent='—');
+  document.getElementById('lv-t').textContent='0.0';
+  document.getElementById('tipo-pill').textContent='Esperando...';
+  document.getElementById('tipo-pill').className='tipo-pill';
+
+  [liveX,liveV,liveA].forEach(c=>{c.data.labels=[];c.data.datasets[0].data=[];c.update()});
+
+  if(S.camON) setSt('EN VIVO','live');
+  else setSt('Iniciar cámara primero','');
+}
+
+// ─── HELPERS ──────────────────────────────────
+function setSt(msg,dotCls) {
+  document.getElementById('stxt').textContent=msg;
+  const d=document.getElementById('sdot');
+  d.className='sdot'+(dotCls?' '+dotCls:'');
+}
+
+function setColor(c) {
+  S.colorMode=c;
+  document.querySelectorAll('.cbtn').forEach(b=>b.classList.toggle('active',b.dataset.c===c));
+}
+
+// Exponer al HTML
+window.toggleCam       = toggleCam;
+window.iniciarCaptura  = iniciarCaptura;
+window.finalizarCaptura= finalizarCaptura;
+window.resetTodo       = resetTodo;
+window.setColor        = setColor;
+
+window.addEventListener('DOMContentLoaded', updCalib);
