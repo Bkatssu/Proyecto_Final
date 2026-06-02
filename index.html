@@ -516,70 +516,112 @@ function calcularFisica(){
   const idxs = Object.keys(S.marcas).map(Number).sort((a,b)=>a-b);
   if(idxs.length<3){alert('Marca al menos 3 frames.');return;}
 
-  const e=esc();
-  const W=S.frames[0].w, H=S.frames[0].h;
+  // Mostrar estado de carga
+  const btn = document.getElementById('b-calc');
+  btn.textContent = '⏳ Calculando...';
+  btn.disabled = true;
+
+  // Ceder el hilo al navegador ANTES de calcular
+  setTimeout(()=>{
+    try{
+      _calcular(idxs);
+    }catch(err){
+      console.error(err);
+      alert('Error al calcular: '+err.message);
+      btn.textContent='⚡ CALCULAR física';
+      btn.disabled=false;
+    }
+  }, 80);
+}
+
+function _calcular(idxs){
+  const e = esc();
+  const W = S.frames[0].w, H = S.frames[0].h;
 
   // Convertir marcas a metros
   const puntos = idxs.map(i=>({
-    t: S.frames[i].t,
-    xm:  (S.marcas[i].x - W/2)*e,
-    ym:  (H/2 - S.marcas[i].y)*e,  // y+ hacia arriba
+    t:  S.frames[i].t,
+    xm: (S.marcas[i].x - W/2) * e,
+    ym: (H/2 - S.marcas[i].y) * e,  // y+ hacia arriba
     idx: i,
   }));
 
-  // Calcular velocidad y aceleración por diferencias finitas centradas
-  const datos=[];
-  for(let i=0;i<puntos.length;i++){
-    const p=puntos[i];
-    let v=0,a=0;
-    if(i>0&&i<puntos.length-1){
-      // Diferencia centrada (más precisa)
-      const dt2=puntos[i+1].t-puntos[i-1].t;
-      const dx2=puntos[i+1].xm-puntos[i-1].xm;
-      const dy2=puntos[i+1].ym-puntos[i-1].ym;
-      const vx=dx2/dt2, vy=dy2/dt2;
-      v=Math.sqrt(vx*vx+vy*vy);
-      // Aceleración centrada
-      if(i>1&&i<puntos.length-2){
-        const dt_=puntos[i+1].t-puntos[i].t;
-        const vx1=(puntos[i+1].xm-puntos[i].xm)/dt_;
-        const vy1=(puntos[i+1].ym-puntos[i].ym)/dt_;
-        const dt0=puntos[i].t-puntos[i-1].t;
-        const vx0=(puntos[i].xm-puntos[i-1].xm)/dt0;
-        const vy0=(puntos[i].ym-puntos[i-1].ym)/dt0;
-        const dt_c=(dt_+dt0)/2;
-        a=(Math.sqrt(vx1*vx1+vy1*vy1)-Math.sqrt(vx0*vx0+vy0*vy0))/dt_c;
+  const n = puntos.length;
+  const datos = [];
+
+  for(let i=0; i<n; i++){
+    const p = puntos[i];
+    let v = 0, a = 0;
+
+    // Velocidad: diferencia centrada si hay vecinos, sino hacia adelante/atrás
+    if(i>0 && i<n-1){
+      const dt = puntos[i+1].t - puntos[i-1].t;
+      if(dt>0){
+        const vx = (puntos[i+1].xm - puntos[i-1].xm)/dt;
+        const vy = (puntos[i+1].ym - puntos[i-1].ym)/dt;
+        v = Math.sqrt(vx*vx + vy*vy);
       }
-    } else if(i===0&&puntos.length>1){
-      const dt=puntos[1].t-puntos[0].t;
-      const vx=(puntos[1].xm-puntos[0].xm)/dt;
-      const vy=(puntos[1].ym-puntos[0].ym)/dt;
-      v=Math.sqrt(vx*vx+vy*vy);
-    } else if(i===puntos.length-1&&puntos.length>1){
-      const dt=puntos[i].t-puntos[i-1].t;
-      const vx=(puntos[i].xm-puntos[i-1].xm)/dt;
-      const vy=(puntos[i].ym-puntos[i-1].ym)/dt;
-      v=Math.sqrt(vx*vx+vy*vy);
+    } else if(i===0){
+      const dt = puntos[1].t - puntos[0].t;
+      if(dt>0){
+        const vx=(puntos[1].xm-puntos[0].xm)/dt;
+        const vy=(puntos[1].ym-puntos[0].ym)/dt;
+        v=Math.sqrt(vx*vx+vy*vy);
+      }
+    } else {
+      const dt = puntos[n-1].t - puntos[n-2].t;
+      if(dt>0){
+        const vx=(puntos[n-1].xm-puntos[n-2].xm)/dt;
+        const vy=(puntos[n-1].ym-puntos[n-2].ym)/dt;
+        v=Math.sqrt(vx*vx+vy*vy);
+      }
     }
-    datos.push({t:+p.t.toFixed(4),x:+p.xm.toFixed(5),y:+p.ym.toFixed(5),v:+v.toFixed(5),a:+a.toFixed(5),idx:p.idx});
+
+    // Aceleración: diferencia centrada de posición (d²x/dt²)
+    if(i>0 && i<n-1){
+      const dt1 = puntos[i+1].t - puntos[i].t;
+      const dt0 = puntos[i].t   - puntos[i-1].t;
+      if(dt1>0 && dt0>0){
+        const ax = 2*(puntos[i+1].xm - puntos[i].xm/1 - puntos[i-1].xm) / (dt1+dt0) / (dt1+dt0) * 2;
+        const ay = 2*(puntos[i+1].ym - puntos[i].ym/1 - puntos[i-1].ym) / (dt1+dt0) / (dt1+dt0) * 2;
+        // Usar aceleración vertical (eje y) con signo — más representativa en caída libre
+        a = ay;
+      }
+    }
+
+    datos.push({
+      t:  +p.t.toFixed(4),
+      x:  +p.xm.toFixed(5),
+      y:  +p.ym.toFixed(5),
+      v:  +v.toFixed(5),
+      a:  +a.toFixed(5),
+      idx: p.idx,
+    });
   }
 
-  // Clasificar
-  const aMed=datos.reduce((s,d)=>s+d.a,0)/datos.length;
-  const vMax=Math.max(...datos.map(d=>d.v));
-  let tipo,css;
-  if(Math.abs(aMed)<0.4){tipo='MRU — velocidad constante';css='mru';}
-  else if(Math.abs(aMed+9.81)<2.5){tipo='Caída libre — g ≈ 9.81 m/s²';css='caida';}
-  else{tipo=`MRUV — a ≈ ${aMed.toFixed(2)} m/s²`;css='mruv';}
+  // Clasificar por aceleración en Y media (ignorar primer y último punto)
+  const interior = datos.slice(1, datos.length-1);
+  const aMed = interior.length>0
+    ? interior.reduce((s,d)=>s+d.a, 0) / interior.length
+    : datos.reduce((s,d)=>s+d.a, 0) / datos.length;
+  const vMax = Math.max(...datos.map(d=>d.v));
 
-  document.getElementById('pill').textContent=tipo;
-  document.getElementById('pill').className='pill '+css;
-  document.getElementById('lvmax').textContent=vMax.toFixed(3);
-  document.getElementById('lamed').textContent=aMed.toFixed(3);
+  let tipo, css;
+  if(Math.abs(aMed)<0.4)        { tipo='MRU — velocidad constante';      css='mru'; }
+  else if(Math.abs(aMed+9.81)<3){ tipo='Caída libre — g ≈ 9.81 m/s²';   css='caida'; }
+  else                           { tipo=`MRUV — a ≈ ${aMed.toFixed(2)} m/s²`; css='mruv'; }
+
+  document.getElementById('pill').textContent = tipo;
+  document.getElementById('pill').className   = 'pill '+css;
+  document.getElementById('lvmax').textContent = vMax.toFixed(3);
+  document.getElementById('lamed').textContent = aMed.toFixed(3);
 
   mostrarGraficasLive(datos);
-  generarReporte(datos,tipo,css,aMed,vMax);
+  generarReporte(datos, tipo, css, aMed, vMax);
   setStep(5,'<strong>¡Listo!</strong> Análisis completado. El reporte está abajo.');
+
+  document.getElementById('b-calc').textContent='⚡ CALCULAR física';
+  document.getElementById('b-calc').disabled=false;
 }
 
 // ── GRÁFICAS LIVE ───────────────────────────────
