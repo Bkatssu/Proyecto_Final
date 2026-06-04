@@ -369,7 +369,9 @@ async function finalizar(){
   analizando.classList.remove('show');
   document.getElementById('frame-selector').style.display='block';
   document.getElementById('b-res').style.display='inline-block';
-  setStep(4,'<strong>Paso 4:</strong> Haz clic en cada frame y luego <strong>clic sobre el objeto</strong> para marcarlo. Marca todos los que puedas.');
+  setStep(4,'<strong>Paso 4:</strong> Haz clic sobre el objeto en cada frame. El sistema avanza solo — marca todos los frames.');
+  // Abrir el primer frame automáticamente
+  seleccionarFrame(0);
 }
 
 // ── THUMBNAILS ──────────────────────────────────
@@ -479,13 +481,18 @@ markCv.addEventListener('click',function(e){
 
   // Actualizar contador
   const n=Object.keys(S.marcas).length;
-  document.getElementById('lpuntos').textContent=n;
+  const total=S.frames.length;
+  document.getElementById('lpuntos').textContent=n+' / '+total;
   document.getElementById('b-calc').disabled = n<3;
 
   // Avanzar automáticamente al siguiente frame
   const next=S.frameActivo+1;
-  if(next<S.frames.length){
+  if(next<total){
     setTimeout(()=>seleccionarFrame(next),150);
+  } else {
+    // Último frame marcado → calcular automáticamente
+    document.getElementById('mark-title').textContent='✓ Todos los frames marcados — calculando...';
+    setTimeout(()=>calcularFisica(), 300);
   }
 });
 
